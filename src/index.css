@@ -1,0 +1,30 @@
+/* Sade, çakışmasız bir temel CSS.
+   Vite şablonundaki body { display:flex; ... } ve koyu/aykırı buton stilleri KALDIRILDI. */
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Body sadece sıfırlansın; layout'u theme.css yönetiyor */
+body {
+  margin: 0;
+  min-width: 320px;
+  background: transparent;
+  /* theme.css arka planını kullan */
+}
+
+/* Varsayılan başlık boyutu */
+h1 {
+  font-size: 2rem;
+  line-height: 1.2;
+}
+
+/* Link örneği — asıl renkleri theme.css belirler */
+a {
+  text-decoration: inherit;
+}
