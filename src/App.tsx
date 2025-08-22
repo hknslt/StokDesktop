@@ -30,6 +30,7 @@ import logo from "./assets/capri_logo.png";
 import FiyatListesiSayfasi from "./pages/FiyatListesiSayfasi";
 import MusteriDetay from "./pages/musteri/MusteriDetay";
 import MusteriDuzenle from "./pages/musteri/MusteriDuzenle";
+import StokDuzenle from "./pages/urun/StokDuzenle";
 
 type Rol = "admin" | "pazarlamaci" | "uretim" | "sevkiyat";
 type UserDoc = { email: string; firstName?: string; lastName?: string; role?: Rol };
@@ -215,7 +216,9 @@ function UygulamaIc() {
           <Route path="/urun/:id" element={<UrunDetay />} />
           <Route path="/urun/:id/duzenle" element={<UrunDuzenle />} />
           <Route path="/fiyat-listeleri" element={<FiyatListesiSayfasi />} />
-                    <Route path="*" element={<Navigate to="/stok" replace />} />
+          <Route path="*" element={<Navigate to="/stok" replace />} />
+          <Route path="/stok/duzenle" element={<StokDuzenle />} />
+
 
           {/* Müşteri */}
           <Route path="/musteriler" element={<MusteriListesi />} />

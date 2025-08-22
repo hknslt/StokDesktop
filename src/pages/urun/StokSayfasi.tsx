@@ -4,11 +4,10 @@ import {
     collection, doc, getDocs, limit, onSnapshot, orderBy, query,
     serverTimestamp, setDoc
 } from "firebase/firestore";
-import {
-    ref, uploadBytesResumable, getDownloadURL
-} from "firebase/storage";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { veritabani, depolama } from "../../firebase";
 import { useNavigate } from "react-router-dom";
+import { stokPdfIndir } from "../../pdf/stokPdf";
 
 type Urun = {
     id: number;
@@ -57,6 +56,10 @@ export default function StokSayfasi() {
     const [urunler, setUrunler] = useState<Urun[]>([]);
     const [ara, setAra] = useState("");
 
+    // 🔽 yeni: sıralama & stok filtresi
+    const [sirala, setSirala] = useState<"az" | "za">("az");
+    const [sifirStok, setSifirStok] = useState(false);
+
     // Form alanları
     const [urunAdi, setUrunAdi] = useState("");
     const [urunKodu, setUrunKodu] = useState("");
@@ -79,7 +82,7 @@ export default function StokSayfasi() {
     // Yükleme / durum
     const [yuk, setYuk] = useState(false);
     const [durum, setDurum] = useState<string | null>(null);
-    const [progress, setProgress] = useState(0); // tüm dosyalar için genel ilerleme
+    const [progress, setProgress] = useState(0);
     const aktifTasklar = useRef<ReturnType<typeof uploadBytesResumable>[]>([]);
 
     // Listeyi canlı oku
@@ -104,17 +107,26 @@ export default function StokSayfasi() {
         });
     }, []);
 
-    // Filtre
+    // Filtre + sıralama
     const filtreli = useMemo(() => {
+        let list = urunler.slice();
+        if (sifirStok) list = list.filter((u) => Number(u.adet || 0) <= 0);
+
         const q = ara.trim().toLowerCase();
-        if (!q) return urunler;
-        return urunler.filter((u) =>
-            [u.urunAdi, u.urunKodu, u.renk, u.aciklama]
-                .filter(Boolean)
-                .map((s) => String(s).toLowerCase())
-                .some((s) => s.includes(q))
-        );
-    }, [urunler, ara]);
+        if (q) {
+            list = list.filter((u) =>
+                [u.urunAdi, u.urunKodu, u.renk, u.aciklama]
+                    .filter(Boolean)
+                    .map((s) => String(s).toLowerCase())
+                    .some((s) => s.includes(q))
+            );
+        }
+
+        list.sort((a, b) => a.urunAdi.localeCompare(b.urunAdi, "tr", { sensitivity: "base" }));
+        if (sirala === "za") list.reverse();
+
+        return list;
+    }, [urunler, ara, sifirStok, sirala]);
 
     // ID üret
     async function getNextNumericId(): Promise<number> {
@@ -126,7 +138,6 @@ export default function StokSayfasi() {
         return (isNaN(topId) ? 0 : topId) + 1;
     }
 
-    // Dosya ekleme (input)
     function handleFileInput(fs: FileList | null) {
         if (!fs || !fs.length) return;
         const arr = Array.from(fs);
@@ -139,7 +150,6 @@ export default function StokSayfasi() {
         if (yeni.length && coverIndex >= yeni.length) setCoverIndex(0);
     }
 
-    // Drag & drop
     function onDrop(e: React.DragEvent) {
         e.preventDefault();
         e.stopPropagation();
@@ -154,7 +164,6 @@ export default function StokSayfasi() {
         else if (coverIndex > ix) setCoverIndex((c) => c - 1);
     }
 
-    // Upload helper (tek dosya + timeout)
     function uploadFileWithTimeout(
         file: File,
         path: string,
@@ -185,7 +194,6 @@ export default function StokSayfasi() {
         });
     }
 
-    // Çoklu dosya yükle (genel progress)
     async function uploadAll(docId: string, fs: File[]): Promise<string[]> {
         if (!fs.length) return [];
         let tamamlanan = 0;
@@ -196,7 +204,6 @@ export default function StokSayfasi() {
             const url = await uploadFileWithTimeout(
                 f,
                 `urunler/${docId}/resimler/${Date.now()}-${i}-${safeRand()}-${f.name}`,
-                // her dosya tamamlandığında genel progressi artır
                 () => {
                     tamamlanan += 1;
                     setProgress(Math.round((tamamlanan / fs.length) * 100));
@@ -222,7 +229,6 @@ export default function StokSayfasi() {
         setFiles([]); setCoverIndex(0); setProgress(0);
     }
 
-    // KAYDET
     const kaydet = async () => {
         if (!urunAdi.trim() || !urunKodu.trim()) {
             setDurum("Ürün adı ve ürün kodu zorunludur.");
@@ -239,7 +245,6 @@ export default function StokSayfasi() {
             let digerURLler: string[] = [];
 
             if (imgMode === "url") {
-                // URL modu
                 const urls = (digerUrlMetni || "")
                     .split(",")
                     .map(s => s.trim())
@@ -247,7 +252,6 @@ export default function StokSayfasi() {
                 kapakURL = kapakUrl.trim() || null;
                 digerURLler = urls;
             } else {
-                // YÜKLE modu
                 if (files.length) {
                     try {
                         const uploaded = await uploadAll(docId, files);
@@ -287,11 +291,18 @@ export default function StokSayfasi() {
         }
     };
 
+    // 🔘 aktif buton stili helper
+    const activeBtnStyle = (active: boolean): React.CSSProperties => ({
+        border: active ? "2px solid var(--ana)" : "1px solid var(--panel-bdr)",
+        background: active ? "color-mix(in oklab, var(--ana) 18%, transparent)" : "transparent"
+    });
+
     return (
         <div style={{ display: "grid", gap: 16 }}>
-            {/* Başlık + Arama */}
+            {/* Başlık + Arama + Filtre/Sıralama */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                 <h2 style={{ margin: 0, flex: "0 0 auto" }}>Stok</h2>
+
                 <input
                     className="input"
                     placeholder="Ara (ad, kod, renk...)"
@@ -299,6 +310,48 @@ export default function StokSayfasi() {
                     onChange={(e) => setAra(e.target.value)}
                     style={{ maxWidth: 320 }}
                 />
+
+                {/* Stoğu olmayanlar filtresi */}
+                <label className="cek-kutu" style={{ userSelect: "none" }}>
+                    <input
+                        type="checkbox"
+                        checked={sifirStok}
+                        onChange={(e) => setSifirStok(e.target.checked)}
+                    />
+                    <span>Stokta olmayanlar</span>
+                </label>
+
+                <button
+                    className="theme-btn"
+                    type="button"
+                    onClick={() => setSirala(s => (s === "az" ? "za" : "az"))}
+                    title="Ada göre sırala"
+                >
+                    {sirala === "az" ? "A → Z" : "Z → A"}
+                </button>
+
+                <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                    <button
+                        className="theme-btn"
+                        onClick={() => {
+                            stokPdfIndir(
+                                filtreli.map(u => ({
+                                    urunAdi: u.urunAdi,
+                                    urunKodu: u.urunKodu,
+                                    renk: u.renk ?? "",
+                                    adet: Number(u.adet || 0)
+                                })),
+                                { baslik: "STOK LİSTESİ" }
+                            );
+                        }}
+                    >
+                        PDF indir
+                    </button>
+
+                    <a href="/stok/duzenle">
+                        <button>Stok Düzenle</button>
+                    </a>
+                </div>
             </div>
 
             {/* Yeni Ürün */}
@@ -312,7 +365,6 @@ export default function StokSayfasi() {
                     <input className="input" placeholder="Adet" type="number" value={String(adet)} onChange={(e) => setAdet(Number(e.target.value))} disabled={yuk} />
                 </div>
 
-                {/* Açıklama */}
                 <textarea
                     className="input"
                     placeholder="Açıklama"
@@ -322,7 +374,6 @@ export default function StokSayfasi() {
                     disabled={yuk}
                 />
 
-                {/* Görsel Ekleme Modu Seçimi */}
                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                     <button
                         type="button"
@@ -342,10 +393,8 @@ export default function StokSayfasi() {
                     </button>
                 </div>
 
-                {/* ---- YÜKLE Modu ---- */}
                 {imgMode === "upload" && (
                     <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-                        {/* Dropzone */}
                         <div
                             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                             onDragLeave={() => setDragOver(false)}
@@ -373,7 +422,6 @@ export default function StokSayfasi() {
                             />
                         </div>
 
-                        {/* Seçili görseller + kapak yıldızı */}
                         {files.length > 0 && (
                             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                                 {files.map((f, i) => {
@@ -389,7 +437,6 @@ export default function StokSayfasi() {
                                                     outline: isCover ? "3px solid var(--ana)" : "1px solid var(--panel-bdr)"
                                                 }}
                                             />
-                                            {/* Kapak Yıldızı */}
                                             <button
                                                 type="button"
                                                 className="theme-btn"
@@ -403,7 +450,6 @@ export default function StokSayfasi() {
                                             >
                                                 {isCover ? "★" : "☆"}
                                             </button>
-                                            {/* Kaldır */}
                                             <button
                                                 type="button"
                                                 className="theme-btn"
@@ -419,7 +465,6 @@ export default function StokSayfasi() {
                             </div>
                         )}
 
-                        {/* Genel ilerleme */}
                         {yuk && (
                             <div style={{ fontSize: 12 }}>
                                 Yükleniyor: %{progress}
@@ -428,7 +473,6 @@ export default function StokSayfasi() {
                     </div>
                 )}
 
-                {/* ---- URL Modu ---- */}
                 {imgMode === "url" && (
                     <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
                         <input
@@ -448,7 +492,6 @@ export default function StokSayfasi() {
                     </div>
                 )}
 
-                {/* Butonlar */}
                 <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
                     {yuk && <button className="theme-btn" type="button" onClick={iptalEt}>İptal</button>}
                     <button onClick={kaydet} disabled={yuk || !urunAdi.trim() || !urunKodu.trim()}>
@@ -459,7 +502,7 @@ export default function StokSayfasi() {
                 {durum && <div style={{ marginTop: 8, opacity: .9 }}>{durum}</div>}
             </div>
 
-            {/* LİSTE — Foto | Ad | Kod | Renk | Adet (sırayı değiştirdim) */}
+            {/* LİSTE — Foto | Ad | Kod | Renk | Adet */}
             <div className="card">
                 <h3 style={{ marginTop: 0 }}>Ürünler</h3>
                 <div style={{ display: "grid", gap: 8 }}>

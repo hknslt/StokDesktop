@@ -26,7 +26,6 @@ function hataMesaji(e: any): string {
 }
 
 export default function GirisSayfasi() {
-  // Bu sayfadayken body'yi işaretle (panelde login tamamen gizlenecek)
   useEffect(() => {
     document.body.setAttribute("data-view", "login");
     return () => document.body.removeAttribute("data-view");
@@ -41,6 +40,16 @@ export default function GirisSayfasi() {
   const [yukleniyor, setYukleniyor] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
   const sifreRef = useRef<HTMLInputElement>(null);
+
+  const [shake, setShake] = useState(false); // hata animasyonu
+
+  useEffect(() => {
+    if (hata) {
+      setShake(true);
+      const t = setTimeout(() => setShake(false), 600);
+      return () => clearTimeout(t);
+    }
+  }, [hata]);
 
   const disabled = useMemo(
     () => !mail || !sifre || !emailRegex.test(mail) || yukleniyor,
@@ -86,14 +95,22 @@ export default function GirisSayfasi() {
 
   return (
     <div className="giris-kap">
-      <div className="giris-kart">
+      {/* arka plan canlı bloblar */}
+      <div className="bg-dekor" aria-hidden>
+        <span className="blob b1" />
+        <span className="blob b2" />
+        <span className="blob b3" />
+        <span className="blob b4" />
+      </div>
+
+      <div className={`giris-kart ${shake ? "shake" : ""}`}>
         <div className="kart-ust">
           <button className="theme-btn" onClick={toggle}>
             {theme === "dark" ? "☀️ Açık" : "🌙 Koyu"}
           </button>
         </div>
 
-        <div className="logo-hero">
+        <div className="logo-hero parilti">
           <img src={logo} alt="Logo" />
         </div>
 
@@ -101,7 +118,7 @@ export default function GirisSayfasi() {
           Hesabınıza giriş yapın
         </p>
 
-        <div className="girdi-alan">
+        <div className={`girdi-alan ${mail && emailRegex.test(mail) ? "ok" : ""}`}>
           <label>E-posta</label>
           <input
             autoFocus
@@ -125,7 +142,7 @@ export default function GirisSayfasi() {
               onKeyDown={enterIle}
             />
             <button
-              className="metin-btn"
+              className="metin-btn ghost"
               type="button"
               onClick={() => {
                 setSifreGoster((v) => !v);
@@ -148,15 +165,22 @@ export default function GirisSayfasi() {
             <span>Beni hatırla</span>
           </label>
 
-          <button type="button" className="metin-btn" onClick={sifremiUnuttum}>
+          <button type="button" className="metin-btn linklike" onClick={sifremiUnuttum}>
             Şifremi unuttum
           </button>
         </div>
 
         {hata && <div className="hata">{hata}</div>}
 
-        <button className="giris-btn" disabled={disabled} onClick={girisYap}>
-          {yukleniyor ? "Giriş yapılıyor…" : "Giriş Yap"}
+        <button className="giris-btn ripple" disabled={disabled} onClick={girisYap}>
+          {yukleniyor ? (
+            <span className="btn-ic">
+              <span className="spinner" />
+              <span>Giriş yapılıyor…</span>
+            </span>
+          ) : (
+            "Giriş Yap"
+          )}
         </button>
 
         <div className="alt-not">© {new Date().getFullYear()}</div>
@@ -164,4 +188,3 @@ export default function GirisSayfasi() {
     </div>
   );
 }
-  
