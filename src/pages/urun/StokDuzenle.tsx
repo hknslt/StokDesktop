@@ -138,16 +138,16 @@ export default function StokDuzenle() {
           <span>Stoğu olmayanlar</span>
         </label>
 
-        {/* 🔽 A→Z / Z→A sıralama */}
-        <select
-          className="input"
-          value={sirala}
-          onChange={(e) => setSirala(e.target.value as "az" | "za")}
+        {/* 🔽 Tek sıralama butonu (toggle) */}
+        <button
+          className="theme-btn"
+          type="button"
+          onClick={() => setSirala(s => (s === "az" ? "za" : "az"))}
           title="Ada göre sırala"
         >
-          <option value="az">Ad A → Z</option>
-          <option value="za">Ad Z → A</option>
-        </select>
+          {sirala === "az" ? "A → Z" : "Z → A"}
+        </button>
+
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <Link to="/stok"><button className="theme-btn">← Stok listesi</button></Link>

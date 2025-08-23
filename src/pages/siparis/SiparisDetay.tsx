@@ -166,8 +166,8 @@ export default function SiparisDetay() {
           >
             <div>Ürün</div>
             <div>Adet</div>
-            <div>Net Birim</div>
-            <div>Net Satır</div>
+            <div> Birim Fiyat(Net)</div>
+            <div>Toplam Fiyat(Net)</div>
           </div>
           {(r.urunler || []).map((s: any, i: number) => (
             <div
