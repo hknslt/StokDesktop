@@ -32,6 +32,7 @@ import MusteriDetay from "./pages/musteri/MusteriDetay";
 import MusteriDuzenle from "./pages/musteri/MusteriDuzenle";
 import StokDuzenle from "./pages/urun/StokDuzenle";
 import Analiz from "./pages/analiz/Analiz";
+import Loglar from "./pages/logs/Loglar";
 
 type Rol = "admin" | "pazarlamaci" | "uretim" | "sevkiyat";
 type UserDoc = { email: string; firstName?: string; lastName?: string; role?: Rol };
@@ -117,9 +118,10 @@ function PanelYerlesim(
           <NavLink to="/siparisler"><span className="icon">🧾</span> Siparişler</NavLink>
           <NavLink to="/fiyat-listeleri"><span className="icon">💲</span> Fiyat Listeleri</NavLink>
           <NavLink to="/musteriler"><span className="icon">👤</span> Müşteriler</NavLink>
-          <NavLink to ="/analiz"> <span className="icon">📊</span>Analiz</NavLink>
+          <NavLink to="/analiz"> <span className="icon">📊</span>Analiz</NavLink>
           <NavLink to="/kullanicilar"><span className="icon">👥</span> Kullanıcılar</NavLink>
-          
+          <NavLink to="/loglar"><span className="icon">🧾</span>Loglar</NavLink>
+
         </nav>
 
         <div className="sidebar-actions">
@@ -236,6 +238,7 @@ function UygulamaIc() {
           <Route path="/siparis/:id" element={<SiparisDetay />} />
 
           <Route path="/analiz" element={<Analiz />} />
+          <Route path="/loglar" element={<Loglar />} />
 
         </Routes>
       </PanelYerlesim>
