@@ -165,7 +165,7 @@
                   value={geciciSifre} onChange={e=>setGeciciSifre(e.target.value)} />
             <input className="input" placeholder="Ad" value={ad} onChange={e=>setAd(e.target.value)} />
             <input className="input" placeholder="Soyad" value={soyad} onChange={e=>setSoyad(e.target.value)} />
-            <input className="input" placeholder="Kullanıcı adı (ör. mustafa.salt)"
+            <input className="input" placeholder="Kullanıcı adı "
                   value={kullaniciAdi} onChange={e=>setKullaniciAdi(e.target.value)} />
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <select className="input" value={yeniRol} onChange={e=>setYeniRol(e.target.value as Rol)}>

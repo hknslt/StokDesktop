@@ -8,11 +8,12 @@ import {
   reddetVeIade,
 } from "../../services/SiparisService";
 import { Link, useNavigate } from "react-router-dom";
+import { teklifPdfYazdirWeb } from "../../pdf/teklifPdf";
 
 /* ---------- sabitler ---------- */
-const DURUMLAR: SiparisDurumu[] = ["beklemede","uretimde","sevkiyat","tamamlandi","reddedildi"];
-const ETIKET: Record<SiparisDurumu,string> = {
-  beklemede:"Beklemede", uretimde:"Üretimde", sevkiyat:"Sevkiyat", tamamlandi:"Tamamlandı", reddedildi:"Reddedildi"
+const DURUMLAR: SiparisDurumu[] = ["beklemede", "uretimde", "sevkiyat", "tamamlandi", "reddedildi"];
+const ETIKET: Record<SiparisDurumu, string> = {
+  beklemede: "Beklemede", uretimde: "Üretimde", sevkiyat: "Sevkiyat", tamamlandi: "Tamamlandı", reddedildi: "Reddedildi"
 };
 
 /* Timestamp | Date | number -> Date */
@@ -36,12 +37,12 @@ export default function SiparisListesi() {
   const [seciliDurumlar, setSeciliDurumlar] = useState<Set<SiparisDurumu>>(
     () => new Set(DURUMLAR) // varsayılan: tüm durumlar açık
   );
-  const [dateField, setDateField] = useState<"tarih"|"islemeTarihi">("islemeTarihi");
+  const [dateField, setDateField] = useState<"tarih" | "islemeTarihi">("islemeTarihi");
   const [from, setFrom] = useState(""); // YYYY-MM-DD
-  const [to, setTo]     = useState(""); // YYYY-MM-DD
+  const [to, setTo] = useState(""); // YYYY-MM-DD
 
   // buton/basit durum
-  const [busy, setBusy] = useState<string|null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   /* ---- canlı veri ---- */
   useEffect(() => hepsiDinle(async (r) => {
@@ -57,7 +58,7 @@ export default function SiparisListesi() {
 
     // 2) tarih filtresi (seçilen alan)
     const start = from ? new Date(from + "T00:00:00") : null;
-    const end   = to   ? new Date(to   + "T23:59:59.999") : null;
+    const end = to ? new Date(to + "T23:59:59.999") : null;
     if (start || end) {
       base = base.filter((x) => {
         const d = toDateOrNull(x[dateField]);
@@ -75,14 +76,14 @@ export default function SiparisListesi() {
         const m = x.musteri ?? {};
         const hedef = [
           m.firmaAdi, m.yetkili, m.telefon, m.adres,
-          ...(x.urunler?.map((u:any)=>u.urunAdi)||[])
-        ].filter(Boolean).map((s:string)=>s.toLowerCase());
-        return hedef.some((s:string)=>s.includes(q));
+          ...(x.urunler?.map((u: any) => u.urunAdi) || [])
+        ].filter(Boolean).map((s: string) => s.toLowerCase());
+        return hedef.some((s: string) => s.includes(q));
       });
     }
 
     // 4) sıralama: seçilen tarih alanına göre yeni → eski
-    const sirali = [...base].sort((a,b) => {
+    const sirali = [...base].sort((a, b) => {
       const da = toDateOrNull(a[dateField])?.getTime() ?? 0;
       const db = toDateOrNull(b[dateField])?.getTime() ?? 0;
       return db - da;
@@ -95,27 +96,27 @@ export default function SiparisListesi() {
   }, [rows, seciliDurumlar, dateField, from, to, ara]);
 
   /* ---- aksiyonlar ---- */
-  async function onayla(r:any) {
+  async function onayla(r: any) {
     setBusy(r.docId);
     try {
       const ok = await sevkiyataGecir(r);
       alert(ok ? "Onaylandı • Sevkiyata alındı." : "Stok yetersiz • Üretime yönlendirildi.");
     } finally { setBusy(null); }
   }
-  async function reddet(r:any) {
+  async function reddet(r: any) {
     setBusy(r.docId);
     try {
       if (r.durum === "sevkiyat") {
         const iadeYapildi = await reddetVeIade(r.docId);
         alert(iadeYapildi ? "Sipariş reddedildi ve stok iade edildi." : "Sipariş reddedildi.");
       } else {
-        await guncelleDurum(r.docId,"reddedildi",{islemeTarihiniAyarla:true});
+        await guncelleDurum(r.docId, "reddedildi", { islemeTarihiniAyarla: true });
       }
     } finally { setBusy(null); }
   }
-  async function tamamla(r:any) {
+  async function tamamla(r: any) {
     setBusy(r.docId);
-    try { await guncelleDurum(r.docId,"tamamlandi",{islemeTarihiniAyarla:true}); }
+    try { await guncelleDurum(r.docId, "tamamlandi", { islemeTarihiniAyarla: true }); }
     finally { setBusy(null); }
   }
 
@@ -127,9 +128,9 @@ export default function SiparisListesi() {
       return next;
     });
   }
-  function durumHepsi()   { setSeciliDurumlar(new Set(DURUMLAR)); }
-  function durumGecmis()  { setSeciliDurumlar(new Set(["tamamlandi","reddedildi"])); }
-  function durumYok()     { setSeciliDurumlar(new Set()); }
+  function durumHepsi() { setSeciliDurumlar(new Set(DURUMLAR)); }
+  function durumGecmis() { setSeciliDurumlar(new Set(["tamamlandi", "reddedildi"])); }
+  function durumYok() { setSeciliDurumlar(new Set()); }
   function filtreSifirla() {
     setSeciliDurumlar(new Set(DURUMLAR));
     setDateField("islemeTarihi");
@@ -137,37 +138,37 @@ export default function SiparisListesi() {
   }
 
   return (
-    <div style={{ display:"grid", gap:16 }}>
+    <div style={{ display: "grid", gap: 16 }}>
       {/* Üst başlık + hızlı özet */}
-      <div style={{ display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
-        <h2 style={{ margin:0 }}>Siparişler</h2>
-        <div style={{ fontSize:13, opacity:.8 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0 }}>Siparişler</h2>
+        <div style={{ fontSize: 13, opacity: .8 }}>
           {liste.length.toLocaleString()} kayıt • Brüt: <b>{toplamBrut.toLocaleString()}</b>
         </div>
-        <div style={{ marginLeft:"auto" }}>
+        <div style={{ marginLeft: "auto" }}>
           <Link to="/siparis/yeni"><button>+ Yeni Sipariş</button></Link>
         </div>
       </div>
 
       {/* Filtre barı */}
-      <div className="card" style={{ display:"grid", gap:10 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+      <div className="card" style={{ display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {/* Tarih alanı seçimi */}
-          <select className="input" value={dateField} onChange={(e)=>setDateField(e.target.value as any)} title="Filtrelenecek tarih alanı">
+          <select className="input" value={dateField} onChange={(e) => setDateField(e.target.value as any)} title="Filtrelenecek tarih alanı">
             <option value="islemeTarihi">İşlem Tarihi</option>
             <option value="tarih">Sipariş Tarihi</option>
           </select>
 
           {/* 2 tarih arası */}
-          <input className="input" type="date" value={from} onChange={(e)=>setFrom(e.target.value)} />
-          <span style={{ opacity:.7 }}>—</span>
-          <input className="input" type="date" value={to} onChange={(e)=>setTo(e.target.value)} />
+          <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <span style={{ opacity: .7 }}>—</span>
+          <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
 
           {/* Arama */}
-          <input className="input" placeholder="Ara (müşteri/ürün…)" value={ara} onChange={(e)=>setAra(e.target.value)} style={{ width:260 }} />
+          <input className="input" placeholder="Ara (müşteri/ürün…)" value={ara} onChange={(e) => setAra(e.target.value)} style={{ width: 260 }} />
 
           {/* Hızlı butonlar */}
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginLeft:"auto" }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
             <button className="theme-btn" type="button" onClick={durumGecmis} title="Sadece tamamlandı+reddedildi">Tam./Red.</button>
             <button className="theme-btn" type="button" onClick={durumHepsi}>Tümü</button>
             <button className="theme-btn" type="button" onClick={durumYok} title="Durum filtresi kapalı">Durum Yok</button>
@@ -176,21 +177,21 @@ export default function SiparisListesi() {
         </div>
 
         {/* Durum chipleri */}
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {DURUMLAR.map((d) => {
             const aktif = seciliDurumlar.has(d);
             return (
               <button
                 key={d}
                 type="button"
-                onClick={()=>toggleDurum(d)}
+                onClick={() => toggleDurum(d)}
                 className="tag"
                 style={{
-                  borderRadius:999,
-                  padding:"6px 10px",
-                  border:"1px solid var(--panel-bdr)",
+                  borderRadius: 999,
+                  padding: "6px 10px",
+                  border: "1px solid var(--panel-bdr)",
                   background: aktif ? "color-mix(in oklab, var(--ana) 12%, transparent)" : "transparent",
-                  cursor:"pointer"
+                  cursor: "pointer"
                 }}
                 title={ETIKET[d]}
               >
@@ -204,14 +205,14 @@ export default function SiparisListesi() {
       {/* Liste */}
       <div className="card">
         <div style={{
-          display:"grid", gridTemplateColumns:"24px 1.4fr 140px 150px 150px 120px 240px",
-          gap:8, fontSize:13, color:"var(--muted)", marginBottom:8
+          display: "grid", gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 240px",
+          gap: 8, fontSize: 13, color: "var(--muted)", marginBottom: 8
         }}>
           <div></div><div>Müşteri</div><div>Durum</div><div>Tarih</div><div>İşlem Tarihi</div><div>Brüt</div><div>İşlemler</div>
         </div>
 
-        <div style={{ display:"grid", gap:8 }}>
-          {liste.map((r:any)=> {
+        <div style={{ display: "grid", gap: 8 }}>
+          {liste.map((r: any) => {
             const stok = stokOk.get(r.docId);
             const musteriAd = r.musteri?.firmaAdi || r.musteri?.yetkili || "-";
 
@@ -220,22 +221,22 @@ export default function SiparisListesi() {
             const dotColor = kapali ? "var(--muted)" : (stok === false ? "var(--kirmizi)" : "var(--yesil)");
             const dotOpacity = kapali ? 0.6 : (stok === undefined ? 0.3 : 1);
             const dotTitle = kapali ? (r.durum === "tamamlandi" ? "Tamamlandı" : "Reddedildi")
-                                    : (stok === false ? "Stok yetersiz" : "Stok uygun");
+              : (stok === false ? "Stok yetersiz" : "Stok uygun");
 
             return (
               <div key={r.docId}
-                   className="row hoverable"
-                   style={{
-                     display:"grid",
-                     gridTemplateColumns:"24px 1.4fr 140px 150px 150px 120px 240px",
-                     gap:8, alignItems:"center",
-                     border:"1px solid var(--panel-bdr)", borderRadius:10, padding:"8px 10px"
-                   }}>
+                className="row hoverable"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 240px",
+                  gap: 8, alignItems: "center",
+                  border: "1px solid var(--panel-bdr)", borderRadius: 10, padding: "8px 10px"
+                }}>
                 <div title={dotTitle}>
-                  <div style={{ width:10, height:10, borderRadius:999, background:dotColor, opacity:dotOpacity }}/>
+                  <div style={{ width: 10, height: 10, borderRadius: 999, background: dotColor, opacity: dotOpacity }} />
                 </div>
 
-                <div style={{ cursor:"pointer" }} onClick={()=>nav(`/siparis/${r.docId}`)}>
+                <div style={{ cursor: "pointer" }} onClick={() => nav(`/siparis/${r.docId}`)}>
                   <b>{musteriAd}</b>
                 </div>
 
@@ -247,26 +248,32 @@ export default function SiparisListesi() {
                 <div>{r.islemeTarihi?.toDate?.().toLocaleDateString?.() || "-"}</div>
                 <div>{Number(r.brutTutar ?? 0).toLocaleString()}</div>
 
-                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <Link to={`/siparis/${r.docId}`}><button className="theme-btn">Detay</button></Link>
 
+                  {/* ✅ Teklif PDF */}
+                  <button className="theme-btn" onClick={() => teklifPdfYazdirWeb(r)}>
+                    Teklif PDF
+                  </button>
+
                   {/* Onayla sadece BEKLEMEDE */}
-                  {r.durum==="beklemede" && (
-                    <button disabled={busy===r.docId} onClick={()=>onayla(r)}>
-                      {busy===r.docId?"…":"Onayla"}
+                  {r.durum === "beklemede" && (
+                    <button disabled={busy === r.docId} onClick={() => onayla(r)}>
+                      {busy === r.docId ? "…" : "Onayla"}
                     </button>
                   )}
 
                   {/* Reddet: tamamlandi / reddedildi HARİÇ */}
-                  {r.durum!=="tamamlandi" && r.durum!=="reddedildi" && (
-                    <button className="theme-btn" disabled={busy===r.docId} onClick={()=>reddet(r)}>Reddet</button>
+                  {r.durum !== "tamamlandi" && r.durum !== "reddedildi" && (
+                    <button className="theme-btn" disabled={busy === r.docId} onClick={() => reddet(r)}>Reddet</button>
                   )}
 
                   {/* Tamamla sadece SEVKIYAT */}
-                  {r.durum==="sevkiyat" && (
-                    <button disabled={busy===r.docId} onClick={()=>tamamla(r)}>Tamamla</button>
+                  {r.durum === "sevkiyat" && (
+                    <button disabled={busy === r.docId} onClick={() => tamamla(r)}>Tamamla</button>
                   )}
                 </div>
+
               </div>
             );
           })}
