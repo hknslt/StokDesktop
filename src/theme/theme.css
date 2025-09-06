@@ -1,5 +1,9 @@
-/* ----------------- Tema değişkenleri ----------------- */
+/* ----------------- Tema değişkenleri + color-scheme ----------------- */
+/* Varsayılan LIGHT tema */
 :root {
+    /* Tarayıcı yerel kontrolleri (select/datalist/date vs.) açık paletle çizsin */
+    color-scheme: light;
+
     /* Light */
     --bg: #f6f7fb;
     --panel: rgba(0, 0, 0, 0.03);
@@ -17,7 +21,11 @@
     --placeholder: #7a8699;
 }
 
+/* DARK tema */
 :root[data-theme="dark"] {
+    /* Yerel kontroller koyu palet */
+    color-scheme: dark;
+
     /* Dark */
     --bg: #0f1115;
     --panel: rgba(255, 255, 255, 0.06);
@@ -33,6 +41,37 @@
     --input-bdr: #2a2f3a;
     --input-txt: #e6e9ef;
     --placeholder: #9aa3b2;
+}
+
+/* Tema bazlı: native UI'lar açık/koyu paleti kesin uygulasın */
+:root[data-theme="light"] input[list],
+:root[data-theme="light"] select,
+:root[data-theme="light"] input[type="date"],
+:root[data-theme="light"] input[type="time"],
+:root[data-theme="light"] input[type="datetime-local"],
+:root[data-theme="light"] input[type="month"],
+:root[data-theme="light"] input[type="week"] {
+    color-scheme: light;
+}
+
+:root[data-theme="dark"] input[list],
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] input[type="date"],
+:root[data-theme="dark"] input[type="time"],
+:root[data-theme="dark"] input[type="datetime-local"],
+:root[data-theme="dark"] input[type="month"],
+:root[data-theme="dark"] input[type="week"] {
+    color-scheme: dark;
+}
+
+/* (Opsiyonel) otomatik doldurma arka planını temaya uydur */
+input:-webkit-autofill,
+select:-webkit-autofill,
+textarea:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0px 1000px var(--input-bg) inset;
+    -webkit-text-fill-color: var(--input-txt);
+    transition: background-color 9999s ease-in-out 0s;
+    /* chrome hack */
 }
 
 /* ----------------- Baz reset ----------------- */
@@ -147,7 +186,6 @@ select option {
 }
 
 /* etiket */
-/* etiket temel */
 .tag {
     padding: 2px 8px;
     border-radius: 999px;
@@ -156,7 +194,6 @@ select option {
 }
 
 /* durum renkleri */
-
 .status-beklemede {
     background: rgba(245, 158, 11, .12);
     border-color: rgba(245, 158, 11, .35);
@@ -413,4 +450,17 @@ select option {
     border: 1px solid var(--panel-bdr);
     background: color-mix(in oklab, var(--ana) 10%, transparent);
     text-transform: capitalize;
+}
+
+.renk-select-btn {
+    text-align: left;
+}
+
+.renk-menu::-webkit-scrollbar {
+    width: 8px;
+}
+
+.renk-menu::-webkit-scrollbar-thumb {
+    background: var(--panel-bdr);
+    border-radius: 8px;
 }

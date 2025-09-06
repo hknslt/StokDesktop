@@ -21,6 +21,9 @@ type Urun = {
     createdAt?: any;
 };
 
+// 🔹 Renk doküman tipi
+type RenkDoc = { id: string; ad: string; adLower?: string | null };
+
 function parseResimYollari(val: any): string[] | undefined {
     if (!val) return undefined;
     if (Array.isArray(val)) return val.filter(Boolean);
@@ -56,7 +59,7 @@ export default function StokSayfasi() {
     const [urunler, setUrunler] = useState<Urun[]>([]);
     const [ara, setAra] = useState("");
 
-    // 🔽 yeni: sıralama & stok filtresi
+    // 🔽 sıralama & stok filtresi
     const [sirala, setSirala] = useState<"az" | "za">("az");
     const [sifirStok, setSifirStok] = useState(false);
 
@@ -64,8 +67,11 @@ export default function StokSayfasi() {
     const [urunAdi, setUrunAdi] = useState("");
     const [urunKodu, setUrunKodu] = useState("");
     const [adet, setAdet] = useState<number>(0);
-    const [renk, setRenk] = useState("");
+    const [renk, setRenk] = useState(""); // 🔸 seçilen/yazılan renk
     const [aciklama, setAciklama] = useState("");
+
+    // 🔹 Firestore’dan renkler
+    const [renkler, setRenkler] = useState<RenkDoc[]>([]);
 
     // Görsel ekleme modu
     const [imgMode, setImgMode] = useState<ImageMode>("upload");
@@ -85,10 +91,27 @@ export default function StokSayfasi() {
     const [progress, setProgress] = useState(0);
     const aktifTasklar = useRef<ReturnType<typeof uploadBytesResumable>[]>([]);
 
-    // Listeyi canlı oku
+    // Renk açılır liste kontrolü
+    const [renkAcik, setRenkAcik] = useState(false);
+    const renkKutuRef = useRef<HTMLDivElement | null>(null);
+
+    // Dışarı tıklayınca kapat
     useEffect(() => {
-        const q = query(collection(veritabani, "urunler"), orderBy("id", "asc"));
-        return onSnapshot(q, (snap) => {
+        function kapat(e: MouseEvent) {
+            if (!renkKutuRef.current) return;
+            if (!renkKutuRef.current.contains(e.target as Node)) {
+                setRenkAcik(false);
+            }
+        }
+        document.addEventListener("mousedown", kapat);
+        return () => document.removeEventListener("mousedown", kapat);
+    }, []);
+
+
+    // 🔸 Ürünleri canlı oku
+    useEffect(() => {
+        const qy = query(collection(veritabani, "urunler"), orderBy("id", "asc"));
+        return onSnapshot(qy, (snap) => {
             const list: Urun[] = snap.docs.map((d) => {
                 const x = d.data() as any;
                 return {
@@ -104,6 +127,21 @@ export default function StokSayfasi() {
                 };
             });
             setUrunler(list);
+        });
+    }, []);
+
+    // 🔹 Renkleri canlı oku
+    useEffect(() => {
+        const qy = query(collection(veritabani, "renkler"), orderBy("adLower", "asc"));
+        return onSnapshot(qy, (snap) => {
+            const list: RenkDoc[] = snap.docs
+                .map((d) => {
+                    const x = d.data() as any;
+                    const ad = String(x.ad ?? "").trim();
+                    return { id: d.id, ad, adLower: x.adLower ?? ad.toLowerCase() };
+                })
+                .filter((r) => r.ad);
+            setRenkler(list);
         });
     }, []);
 
@@ -130,8 +168,8 @@ export default function StokSayfasi() {
 
     // ID üret
     async function getNextNumericId(): Promise<number> {
-        const q = query(collection(veritabani, "urunler"), orderBy("id", "desc"), limit(1));
-        const snap = await getDocs(q);
+        const qy = query(collection(veritabani, "urunler"), orderBy("id", "desc"), limit(1));
+        const snap = await getDocs(qy);
         if (snap.empty) return 1;
         const top = snap.docs[0];
         const topId = Number((top.data() as any).id ?? Number(top.id) ?? 0);
@@ -270,7 +308,7 @@ export default function StokSayfasi() {
                 urunAdi: urunAdi.trim(),
                 urunKodu: urunKodu.trim(),
                 adet: Number(adet) || 0,
-                renk: renk.trim() || null,
+                renk: renk.trim() || null, // 🔸 buraya seçilen renk
                 aciklama: aciklama.trim() || null,
                 kapakResimYolu: kapakURL || null,
                 resimYollari: digerURLler.length ? digerURLler : null,
@@ -290,12 +328,6 @@ export default function StokSayfasi() {
             aktifTasklar.current = [];
         }
     };
-
-    // 🔘 aktif buton stili helper
-    const activeBtnStyle = (active: boolean): React.CSSProperties => ({
-        border: active ? "2px solid var(--ana)" : "1px solid var(--panel-bdr)",
-        background: active ? "color-mix(in oklab, var(--ana) 18%, transparent)" : "transparent"
-    });
 
     return (
         <div style={{ display: "grid", gap: 16 }}>
@@ -361,8 +393,100 @@ export default function StokSayfasi() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12 }}>
                     <input className="input" placeholder="Ürün Adı *" value={urunAdi} onChange={(e) => setUrunAdi(e.target.value)} disabled={yuk} />
                     <input className="input" placeholder="Ürün Kodu *" value={urunKodu} onChange={(e) => setUrunKodu(e.target.value)} disabled={yuk} />
-                    <input className="input" placeholder="Renk (örn. Gri)" value={renk} onChange={(e) => setRenk(e.target.value)} disabled={yuk} />
-                    <input className="input" placeholder="Adet" type="number" value={String(adet)} onChange={(e) => setAdet(Number(e.target.value))} disabled={yuk} />
+
+                    {/* 🔹 Renk: sadece listeden seçilecek, yazılamaz */}
+                    <div
+                        ref={renkKutuRef}
+                        className="renk-select-wrap"
+                        style={{ position: "relative" }}
+                    >
+                        <button
+                            type="button"
+                            className="input renk-select-btn"
+                            onClick={() => setRenkAcik((a) => !a)}
+                            disabled={yuk}
+                            title="Renk seç"
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 8,
+                                cursor: "pointer"
+                            }}
+                        >
+                            <span style={{ opacity: renk ? 1 : 0.7 }}>
+                                {renk ? renk : "Renk seçin"}
+                            </span>
+                            <span aria-hidden>▾</span>
+                        </button>
+
+                        {renkAcik && (
+                            <div
+                                className="renk-menu"
+                                role="listbox"
+                                style={{
+                                    position: "absolute",
+                                    zIndex: 20,
+                                    top: "calc(100% + 6px)",
+                                    left: 0,
+                                    right: 0,
+                                    background: "var(--input-bg)",
+                                    color: "var(--txt)",
+                                    border: "1px solid var(--panel-bdr)",
+                                    borderRadius: 10,
+                                    boxShadow: "0 6px 28px rgba(0,0,0,.18)",
+                                    maxHeight: 240,
+                                    overflow: "auto"
+                                }}
+                            >
+                                {/* İsteğe bağlı: temizle */}
+                                <div
+                                    className="renk-item"
+                                    role="option"
+                                    onClick={() => { setRenk(""); setRenkAcik(false); }}
+                                    style={{
+                                        padding: "10px 12px",
+                                        cursor: "pointer",
+                                        fontSize: 14,
+                                        borderBottom: "1px solid var(--panel-bdr)",
+                                        opacity: .9
+                                    }}
+                                >
+                                    (Seçimi temizle)
+                                </div>
+
+                                {renkler.map((r) => (
+                                    <div
+                                        key={r.id}
+                                        className="renk-item"
+                                        role="option"
+                                        aria-selected={renk === r.ad}
+                                        onClick={() => { setRenk(r.ad); setRenkAcik(false); }}
+                                        style={{
+                                            padding: "10px 12px",
+                                            cursor: "pointer",
+                                            fontSize: 14,
+                                            background: renk === r.ad ? "color-mix(in oklab, var(--ana) 14%, var(--input-bg))" : "transparent"
+                                        }}
+                                        onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in oklab, var(--ana) 10%, var(--input-bg))")}
+                                        onMouseLeave={(e) => (e.currentTarget.style.background = renk === r.ad ? "color-mix(in oklab, var(--ana) 14%, var(--input-bg))" : "transparent")}
+                                    >
+                                        {r.ad}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+
+                    <input
+                        className="input"
+                        placeholder="Adet"
+                        type="number"
+                        value={String(adet)}
+                        onChange={(e) => setAdet(Number(e.target.value))}
+                        disabled={yuk}
+                    />
                 </div>
 
                 <textarea

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { collection, query, where, getDocs } from "firebase/firestore";
 
 type Urun = {
   id: number;
@@ -26,11 +26,21 @@ export default function UrunDetay() {
     (async () => {
       try {
         if (!id) return;
-        const snap = await getDoc(doc(veritabani, "urunler", id));
-        if (!snap.exists()) { setData(null); setYuk(false); return; }
+        // docId'yi çekmek için sorgu yap.
+        // Bu yöntem daha doğru.
+        const q = query(collection(veritabani, "urunler"), where("id", "==", Number(id)));
+        const querySnapshot = await getDocs(q);
+        if (querySnapshot.empty) {
+          setData(null);
+          setYuk(false);
+          return;
+        }
+
+        const snap = querySnapshot.docs[0];
         const x = snap.data() as any;
         const d: Urun = {
-          id: Number(x.id ?? Number(id)),
+          id: Number(x.id ?? Number(snap.id)),
+          // Diğer alanlar aynı kalır...
           urunAdi: String(x.urunAdi ?? ""),
           urunKodu: String(x.urunKodu ?? ""),
           adet: Number(x.adet ?? 0),

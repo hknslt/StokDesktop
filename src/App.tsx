@@ -33,6 +33,7 @@ import MusteriDuzenle from "./pages/musteri/MusteriDuzenle";
 import StokDuzenle from "./pages/urun/StokDuzenle";
 import Analiz from "./pages/analiz/Analiz";
 import Loglar from "./pages/logs/Loglar";
+import AyarlarSayfasi from "./pages/ayarlar/AyarlarSayfasi";
 
 type Rol = "admin" | "pazarlamaci" | "uretim" | "sevkiyat";
 type UserDoc = { email: string; firstName?: string; lastName?: string; role?: Rol };
@@ -121,6 +122,8 @@ function PanelYerlesim(
           <NavLink to="/analiz"> <span className="icon">📊</span>Analiz</NavLink>
           <NavLink to="/kullanicilar"><span className="icon">👥</span> Kullanıcılar</NavLink>
           <NavLink to="/loglar"><span className="icon">🧾</span>Loglar</NavLink>
+          <NavLink to="/ayarlar"><span className="icon">⚙️</span> Ayarlar</NavLink>
+
 
         </nav>
 
@@ -239,6 +242,7 @@ function UygulamaIc() {
 
           <Route path="/analiz" element={<Analiz />} />
           <Route path="/loglar" element={<Loglar />} />
+          <Route path="/ayarlar" element={<AyarlarSayfasi />} />
 
         </Routes>
       </PanelYerlesim>
