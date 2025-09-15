@@ -1,4 +1,3 @@
-// src/services/SiparisService.ts
 import {
   addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query,
   serverTimestamp, updateDoc, where, Timestamp, getDoc
@@ -89,7 +88,7 @@ export async function guncelleDurum(
   } as any);
 }
 
-/** stok yeterse sevkiyat + stok düş; değilse üretimde */
+/** ✅ Beklemede/Üretimde → stok yeterse SEVKIYAT'a geçir ve stok düş; değilse ÜRETİMDE bırak */
 export async function sevkiyataGecir(s: SiparisModel & {docId:string}) {
   const istek: Record<number, number> = {};
   for (const r of s.urunler) {
@@ -101,9 +100,14 @@ export async function sevkiyataGecir(s: SiparisModel & {docId:string}) {
   if (ok) {
     await guncelleDurum(s.docId, "sevkiyat", { islemeTarihiniAyarla: true });
   } else {
-    await guncelleDurum(s.docId, "uretimde");
+    await guncelleDurum(s.docId, "uretimde"); // ekstra güvenlik: stok yetersizse üretimde kalsın/geçsin
   }
   return ok;
+}
+
+/** ✅ ÜRETİM ONAYI (stoklara dokunmaz) */
+export async function uretimeOnayla(docId: string) {
+  await guncelleDurum(docId, "uretimde", { islemeTarihiniAyarla: true });
 }
 
 /** bilgilendirme amaçlı (liste görünümünde) */

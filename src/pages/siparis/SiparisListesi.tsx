@@ -3,6 +3,7 @@ import {
   hepsiDinle,
   guncelleDurum,
   sevkiyataGecir,
+  uretimeOnayla,           // ✅ eklendi
   SiparisDurumu,
   stokYeterlilikHaritasi,
   reddetVeIade,
@@ -96,14 +97,30 @@ export default function SiparisListesi() {
   }, [rows, seciliDurumlar, dateField, from, to, ara]);
 
   /* ---- aksiyonlar ---- */
-  async function onayla(r: any) {
+  async function sevkiyatOnayi(r: any) {
     setBusy(r.docId);
     try {
-      const ok = await sevkiyataGecir(r);
-      alert(ok ? "Onaylandı • Sevkiyata alındı." : "Stok yetersiz • Üretime yönlendirildi.");
+      const ok = await sevkiyataGecir(r); // stok uygunsa düş + durum=sevkiyat; değilse üretimde
+      alert(ok ? "Sevkiyat onayı verildi. Stok düşüldü." : "Stok yetersiz. Üretime yönlendirildi.");
     } finally { setBusy(null); }
   }
+
+  async function uretimOnayi(r: any) {
+    setBusy(r.docId);
+    try {
+      await uretimeOnayla(r.docId); // sadece durum=uretimde, stoklara dokunmaz
+      alert("Üretim onayı verildi. Sipariş üretimde.");
+    } finally { setBusy(null); }
+  }
+
   async function reddet(r: any) {
+    const musteriAd = r?.musteri?.firmaAdi || r?.musteri?.yetkili || "müşteri";
+    const mesaj =
+      r.durum === "sevkiyat"
+        ? `“${musteriAd}” siparişini reddetmek üzeresiniz.\n\nBu sipariş sevkiyatta: düşülen stoklar iade edilecek.\n\nOnaylıyor musunuz?`
+        : `“${musteriAd}” siparişini reddetmek üzeresiniz.\n\nOnaylıyor musunuz?`;
+    if (!window.confirm(mesaj)) return;
+
     setBusy(r.docId);
     try {
       if (r.durum === "sevkiyat") {
@@ -111,13 +128,16 @@ export default function SiparisListesi() {
         alert(iadeYapildi ? "Sipariş reddedildi ve stok iade edildi." : "Sipariş reddedildi.");
       } else {
         await guncelleDurum(r.docId, "reddedildi", { islemeTarihiniAyarla: true });
+        alert("Sipariş reddedildi.");
       }
     } finally { setBusy(null); }
   }
+
   async function tamamla(r: any) {
     setBusy(r.docId);
-    try { await guncelleDurum(r.docId, "tamamlandi", { islemeTarihiniAyarla: true }); }
-    finally { setBusy(null); }
+    try {
+      await guncelleDurum(r.docId, "tamamlandi", { islemeTarihiniAyarla: true });
+    } finally { setBusy(null); }
   }
 
   /* ---- durum chipleri ---- */
@@ -205,7 +225,7 @@ export default function SiparisListesi() {
       {/* Liste */}
       <div className="card">
         <div style={{
-          display: "grid", gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 240px",
+          display: "grid", gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 360px",
           gap: 8, fontSize: 13, color: "var(--muted)", marginBottom: 8
         }}>
           <div></div><div>Müşteri</div><div>Durum</div><div>Tarih</div><div>İşlem Tarihi</div><div>Brüt</div><div>İşlemler</div>
@@ -228,7 +248,7 @@ export default function SiparisListesi() {
                 className="row hoverable"
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 240px",
+                  gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 360px",
                   gap: 8, alignItems: "center",
                   border: "1px solid var(--panel-bdr)", borderRadius: 10, padding: "8px 10px"
                 }}>
@@ -256,14 +276,31 @@ export default function SiparisListesi() {
                     Teklif PDF
                   </button>
 
-                  {/* Onayla sadece BEKLEMEDE */}
+                  {/* ✅ Beklemede → stok varsa Sevkiyat Onayı, yoksa Üretim Onayı */}
                   {r.durum === "beklemede" && (
-                    <button disabled={busy === r.docId} onClick={() => onayla(r)}>
-                      {busy === r.docId ? "…" : "Onayla"}
-                    </button>
+                    stok === true ? (
+                      <button disabled={busy === r.docId} onClick={() => sevkiyatOnayi(r)}>
+                        {busy === r.docId ? "…" : "Sevkiyat Onayı"}
+                      </button>
+                    ) : (
+                      <button disabled={busy === r.docId} onClick={() => uretimOnayi(r)}>
+                        {busy === r.docId ? "…" : "Üretim Onayı"}
+                      </button>
+                    )
                   )}
 
-                  {/* Reddet: tamamlandi / reddedildi HARİÇ */}
+                  {/* ✅ Üretimde → stok varsa Sevkiyat Onayı, yoksa bilgi */}
+                  {r.durum === "uretimde" && (
+                    stok === true ? (
+                      <button disabled={busy === r.docId} onClick={() => sevkiyatOnayi(r)}>
+                        {busy === r.docId ? "…" : "Sevkiyat Onayı"}
+                      </button>
+                    ) : (
+                      <button className="theme-btn" disabled>Üretim Bekleniyor</button>
+                    )
+                  )}
+
+                  {/* Reddet: tamamlandi / reddedildi HARİÇ (onay sorar, sevkiyatta iade yapar) */}
                   {r.durum !== "tamamlandi" && r.durum !== "reddedildi" && (
                     <button className="theme-btn" disabled={busy === r.docId} onClick={() => reddet(r)}>Reddet</button>
                   )}
