@@ -10,6 +10,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  addDoc,
 } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 import {
@@ -111,6 +112,9 @@ export default function SiparisOlustur() {
     telefon: "",
     adres: "",
   });
+
+  // Manuel müşteriyi kayıtlılara kaydetme tiki (varsayılan açık)
+  const [manuelKaydet, setManuelKaydet] = useState<boolean>(true);
 
   const musteriEmbed: SiparisMusteri | null = useMemo(() => {
     if (kayitliMi) {
@@ -214,10 +218,58 @@ export default function SiparisOlustur() {
 
   const kaydedilebilir = !!musteriEmbed && satirlar.length > 0;
 
+  // --- Yardımcı: bir sonraki müşteri id'si ---
+  async function sonrakiMusteriId(): Promise<number> {
+    const qy = query(
+      collection(veritabani, "musteriler"),
+      orderBy("id", "desc"),
+      limit(1)
+    );
+    const snap = await getDocs(qy);
+    const lastId = snap.docs.length ? Number(snap.docs[0].data().id ?? 0) : 0;
+    return (isFinite(lastId) ? lastId : 0) + 1;
+  }
+
+  // --- Kaydet ---
   async function kaydet() {
     if (!kaydedilebilir) return;
+
+    let embedToUse = musteriEmbed!;
+
+    // Manuel mod + "kaydet" tiki açık ise önce müşteriyi koleksiyona ekle
+    if (!kayitliMi && manuelKaydet) {
+      if (!manuel.firmaAdi?.trim() || !manuel.telefon?.trim()) {
+        alert("Firma adı ve telefon zorunludur.");
+        return;
+      }
+
+      const yeniId = await sonrakiMusteriId();
+      const docData = {
+        id: yeniId,
+        firmaAdi: manuel.firmaAdi.trim(),
+        yetkili: manuel.yetkili?.trim() || "",
+        telefon: manuel.telefon?.trim() || "",
+        adres: manuel.adres?.trim() || "",
+        createdAt: serverTimestamp(),
+      };
+
+      const ref = await addDoc(collection(veritabani, "musteriler"), docData);
+
+      // Sipariş embed'ini yeni kayıtla senkronla
+      embedToUse = {
+        id: String(yeniId),
+        firmaAdi: docData.firmaAdi,
+        yetkili: docData.yetkili,
+        telefon: docData.telefon,
+        adres: docData.adres,
+      };
+
+      // UI tarafında da seçim yapılan müşteri gibi davranması için
+      setSeciliMusteriId(ref.id);
+    }
+
     await ekleSiparis({
-      musteri: musteriEmbed!,
+      musteri: embedToUse,
       urunler: satirlar,
       durum: "beklemede",
       tarih: serverTimestamp() as any,
@@ -230,6 +282,7 @@ export default function SiparisOlustur() {
       kdvTutar,
       brutTutar: brutToplam,
     });
+
     nav("/siparisler");
   }
 
@@ -337,6 +390,26 @@ export default function SiparisOlustur() {
               value={manuel.adres || ""}
               onChange={(e) => setManuel({ ...manuel, adres: e.target.value })}
             />
+
+            {/* Manuel müşteriyi kaydet tiki */}
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <input
+                id="manuelKaydet"
+                type="checkbox"
+                checked={manuelKaydet}
+                onChange={(e) => setManuelKaydet(e.target.checked)}
+              />
+              <label htmlFor="manuelKaydet">
+                Bu manuel müşteriyi kayıtlı müşterilere kaydet
+              </label>
+            </div>
           </div>
         )}
       </div>
@@ -396,8 +469,7 @@ export default function SiparisOlustur() {
               key={i}
               style={{
                 display: "grid",
-                gridTemplateColumns:
-                  "1fr 120px 90px 110px 110px 80px",
+                gridTemplateColumns: "1fr 120px 90px 110px 110px 80px",
                 gap: 8,
                 alignItems: "center",
                 border: "1px solid var(--panel-bdr)",
@@ -534,8 +606,7 @@ export default function SiparisOlustur() {
                 >
                   <div style={{ fontWeight: 700 }}>{m.firmaAdi}</div>
                   <div style={{ fontSize: 12, opacity: 0.8 }}>
-                    {m.yetkili || ""}{" "}
-                    {m.telefon ? `• ${m.telefon}` : ""}{" "}
+                    {m.yetkili || ""} {m.telefon ? `• ${m.telefon}` : ""}{" "}
                     {m.adres ? `• ${m.adres}` : ""}
                   </div>
                 </button>
@@ -589,3 +660,4 @@ export default function SiparisOlustur() {
     </div>
   );
 }
+  
