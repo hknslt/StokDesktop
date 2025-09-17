@@ -250,6 +250,25 @@ select option {
     border: 1px solid var(--panel-bdr);
     border-radius: 10px;
     background: transparent;
+    display: block;
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--panel-bdr);
+    border-radius: 10px;
+    background: var(--panel);
+    /* <-- ARTIK şeffaf değil */
+    color: var(--txt);
+    transition: background .15s ease, border-color .15s ease, transform .02s ease;
+}
+
+:root[data-theme="dark"] .list-btn:hover {
+    background: color-mix(in oklab, var(--panel) 60%, #1a2230);
+    border-color: #2a3a4d;
+}
+
+:root[data-theme="light"] .list-btn:hover {
+    background: color-mix(in oklab, var(--panel) 50%, #eef2f6);
+    border-color: color-mix(in oklab, var(--panel-bdr) 70%, #d7dce2);
 }
 
 .list-btn:hover {

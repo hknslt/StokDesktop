@@ -1,83 +1,121 @@
-import * as functions from "firebase-functions";
+// functions/src/index.ts
+// *** KRİTİK ***: v1 import edin (böylece .region(...) kullanılabilir)
+import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 
 admin.initializeApp();
 const db = admin.firestore();
 
-type CreateUserData = {
-  email?: string;
-  password?: string;
-  firstName?: string;
-  lastName?: string;
-  role?: "admin" | "pazarlamaci";
-};
+const REGION = "europe-west1"; // istemcide getFunctions(app, "europe-west1") ile aynı olmalı
 
-export const adminCreateUser = functions.https.onCall(
-  async (request) => {
-    // 1) Oturum kontrolü
-    const callerUid = request.auth?.uid;
-    if (!callerUid) {
-      throw new functions.https.HttpsError(
-        "unauthenticated",
-        "Oturum yok."
-      );
-    }
+type Rol = "admin" | "pazarlamaci" | "uretim" | "sevkiyat";
 
-    // 2) Çağıran admin mi?
-    const callerDoc = await db.doc(`users/${callerUid}`).get();
-    const callerRole = callerDoc.exists ? callerDoc.get("role") : null;
-    if (callerRole !== "admin") {
-      throw new functions.https.HttpsError(
-        "permission-denied",
-        "Sadece admin kullanıcı oluşturabilir."
-      );
-    }
+async function assertIsAdmin(callerUid?: string, token?: any) {
+  if (!callerUid) {
+    throw new functions.https.HttpsError("unauthenticated", "Oturum yok.");
+  }
+  // 1) custom claim
+  if (token?.role === "admin" || token?.admin === true) return;
 
-    // 3) Parametreler
-    const data = (request.data || {}) as CreateUserData;
-    const email = String(data.email || "").trim();
-    const password = String(data.password || "");
-    const firstName = String(data.firstName || "").trim();
-    const lastName = String(data.lastName || "").trim();
-    const role =
-      (data.role as "admin" | "pazarlamaci") || "pazarlamaci";
+  // 2) Firestore fallback
+  const doc = await db.doc(`users/${callerUid}`).get();
+  const role = doc.exists ? doc.get("role") : null;
+  if (role !== "admin") {
+    throw new functions.https.HttpsError("permission-denied", "Yetersiz yetki (admin gerekli).");
+  }
+}
+
+// --- Kullanıcı oluştur (Auth + claims + Firestore) ---
+export const adminCreateUser = functions
+  .region(REGION)
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    const callerUid = context.auth?.uid;
+    await assertIsAdmin(callerUid, context.auth?.token);
+
+    const email = String(data?.email || "").trim().toLowerCase();
+    const password = String(data?.password || "");
+    const firstName = String(data?.firstName || "").trim();
+    const lastName = String(data?.lastName || "").trim();
+    const role: Rol = (data?.role as Rol) || "pazarlamaci";
 
     if (!email || !password) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "email ve password zorunludur."
-      );
+      throw new functions.https.HttpsError("invalid-argument", "email ve password zorunludur.");
+    }
+    if (password.length < 6) {
+      throw new functions.https.HttpsError("invalid-argument", "Şifre en az 6 karakter olmalı.");
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new functions.https.HttpsError("invalid-argument", "Geçerli bir e-posta giriniz.");
     }
 
-    // 4) Auth'ta kullanıcı oluştur
+    // Auth
     const user = await admin.auth().createUser({
-      email: email,
-      password: password,
-      displayName:
-        (`${firstName} ${lastName}`).trim() || undefined,
+      email,
+      password,
+      displayName: `${firstName} ${lastName}`.trim() || undefined,
       emailVerified: false,
       disabled: false,
     });
 
-    // (opsiyonel) custom claims
-    await admin.auth().setCustomUserClaims(
-      user.uid,
-      {role: role}
-    );
+    // Claims
+    await admin.auth().setCustomUserClaims(user.uid, { role, admin: role === "admin" });
 
-    // 5) Firestore users/{uid}
+    // Firestore
     await db.doc(`users/${user.uid}`).set(
       {
-        email: email,
-        firstName: firstName,
-        lastName: lastName,
-        role: role,
-        createdAt:
-          admin.firestore.FieldValue.serverTimestamp(),
+        email,
+        firstName,
+        lastName,
+        role,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
       },
-      {merge: true}
+      { merge: true }
     );
 
-    return {uid: user.uid};
-  }
-);
+    console.log(`User created by ${callerUid}: ${user.uid}`);
+    return { uid: user.uid };
+  });
+
+// --- Auth hesabını sil (client Firestore'u silecek) ---
+export const adminDeleteUser = functions
+  .region(REGION)
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    const callerUid = context.auth?.uid;
+    await assertIsAdmin(callerUid, context.auth?.token);
+
+    const targetUid = String(data?.uid || "").trim();
+    if (!targetUid) {
+      throw new functions.https.HttpsError("invalid-argument", "uid zorunlu.");
+    }
+
+    try {
+      await admin.auth().deleteUser(targetUid);
+      console.log(`Auth deleted by ${callerUid}: ${targetUid}`);
+      return { ok: true };
+    } catch (err: any) {
+      if (err?.code === "auth/user-not-found") {
+        console.warn(`User not found in Auth, continue: ${targetUid}`);
+        return { ok: true, note: "user-not-found" };
+      }
+      console.error("Delete user failed", err);
+      throw new functions.https.HttpsError("internal", err?.message || "Silme hatası.");
+    }
+  });
+
+// --- (opsiyonel) bir kullanıcıya admin claim atama ---
+export const setAdminRole = functions
+  .region(REGION)
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    const callerUid = context.auth?.uid;
+    await assertIsAdmin(callerUid, context.auth?.token);
+
+    const targetUid = String(data?.uid || "").trim();
+    if (!targetUid) {
+      throw new functions.https.HttpsError("invalid-argument", "uid zorunlu.");
+    }
+
+    await admin.auth().setCustomUserClaims(targetUid, { role: "admin", admin: true });
+    console.log(`Admin claim set by ${callerUid} -> ${targetUid}`);
+    return { ok: true };
+  });
