@@ -54,7 +54,7 @@ async function loadImageDataUrl(possibleUrls: string[]): Promise<string> {
       });
       reader.readAsDataURL(blob);
       return await p;
-    } catch { }
+    } catch {}
   }
   throw new Error("Logo bulunamadı");
 }
@@ -65,7 +65,10 @@ const TL = (n: number) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-const NUM = (n: any) => Number(n || 0);
+const NUM = (n: any) => {
+  const v = Number(n);
+  return Number.isFinite(v) ? v : 0;
+};
 function toDateStr(ts: any | undefined) {
   try {
     const d = ts?.toDate?.() ?? (ts instanceof Date ? ts : null);
@@ -73,6 +76,28 @@ function toDateStr(ts: any | undefined) {
   } catch {
     return "";
   }
+}
+
+/* ——— KDV yardımcıları ——— */
+function resolveKdvOrani(siparis: any): number {
+  // Öncelik: fiyat listesi → sipariş → fallback %10
+  const candidates = [
+    siparis?.fiyatListesi?.kdvOrani,
+    siparis?.fiyatListesi?.kdv,
+    siparis?.kdvOrani,
+    siparis?.kdv,
+  ].map(NUM);
+
+  const found = candidates.find((x) => x > 0 && x <= 100);
+  return found ?? 10;
+}
+
+function isKdvDahil(siparis: any): boolean {
+  return Boolean(
+    siparis?.fiyatListesi?.kdvDahil ??
+    siparis?.kdvDahil ??
+    false
+  );
 }
 
 /* ——— ANA: Teklif PDF ——— */
@@ -99,7 +124,6 @@ export async function teklifPdfYazdirWeb(siparis: any) {
       "src/assets/capri_logo_ori.png",
     ]);
 
-    // Orijinal boyutları al
     const img = new Image();
     img.src = logoDataUrl;
     await new Promise((res) => (img.onload = res));
@@ -107,11 +131,9 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     const pxWidth = img.width;
     const pxHeight = img.height;
 
-    // mm’ye ölçekleme için max sınırlar
     const maxW = 80; // mm
     const maxH = 30; // mm
 
-    // Oranı koruyarak mm’ye çevir
     let w = maxW;
     let h = (pxHeight / pxWidth) * w;
     if (h > maxH) {
@@ -124,14 +146,13 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     doc.addImage(logoDataUrl, "PNG", logoX, logoY, w, h);
 
     headerBottomY = Math.max(headerBottomY, logoY + h);
-  } catch { }
-
+  } catch {}
 
   /* ----- Başlık ----- */
   doc.setFont(fontFamily, "bold");
   doc.setFontSize(18);
   doc.setTextColor(0);
-  const titleY = headerBottomY ;
+  const titleY = headerBottomY;
   doc.text("TEKLİF FİŞİ", pageWidth / 2, titleY, { align: "center" });
 
   // Sağ üstte tarih
@@ -147,7 +168,10 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     styles: { font: fontFamily, fontSize: 10, cellPadding: 2 },
     headStyles: { fillColor: [230, 230, 230] },
     body: [
-      [`Müşteri: ${siparis?.musteri?.firmaAdi ?? siparis?.musteri?.yetkili ?? ""}`, `Yetkili: ${siparis?.musteri?.yetkili ?? ""}`],
+      [
+        `Müşteri: ${siparis?.musteri?.firmaAdi ?? siparis?.musteri?.yetkili ?? ""}`,
+        `Yetkili: ${siparis?.musteri?.yetkili ?? ""}`,
+      ],
       [`Telefon: ${siparis?.musteri?.telefon ?? ""}`, `Adres: ${siparis?.musteri?.adres ?? ""}`],
       [`Açıklama: ${siparis?.aciklama ?? ""}`, ``],
     ],
@@ -159,7 +183,14 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     const adet = NUM(u?.adet);
     const birim = NUM(u?.birimFiyat);
     const tutar = adet * birim;
-    return [String(i + 1), String(u?.urunAdi ?? ""), String(u?.renk ?? ""), String(adet), TL(birim), TL(tutar)];
+    return [
+      String(i + 1),
+      String(u?.urunAdi ?? ""),
+      String(u?.renk ?? ""),
+      String(adet),
+      TL(birim),
+      TL(tutar),
+    ];
   });
 
   const startY = ((doc as any).lastAutoTable?.finalY ?? 40) + 6;
@@ -181,11 +212,46 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     },
   });
 
-  /* ----- Toplamlar ----- */
-  const araToplam = urunler.reduce((t, u) => t + NUM(u?.adet) * NUM(u?.birimFiyat), 0);
-  const kdvOrani = 10;
-  const kdvTutar = (araToplam * kdvOrani) / 100;
-  const genelToplam = araToplam + kdvTutar;
+  /* ----- Toplamlar: dinamik KDV / kdvDahil desteği ----- */
+  const globalKdv = resolveKdvOrani(siparis); // %
+  const kdvDahil = isKdvDahil(siparis);
+
+  let araToplam = 0;   // KDV hariç
+  let kdvTutar = 0;    // KDV toplamı
+  let genelToplam = 0; // KDV dahil
+
+  for (const u of urunler) {
+    const adet = NUM(u?.adet);
+    const birim = NUM(u?.birimFiyat);
+
+    // Ürün üzerinde farklı oran varsa onu kullan
+    const satirKdv = (() => {
+      const cands = [u?.kdvOrani, u?.kdv, u?.kdvYuzde].map(NUM);
+      const found = cands.find((x) => x > 0 && x <= 100);
+      return found ?? globalKdv;
+    })();
+
+    if (kdvDahil) {
+      // birim fiyat KDV dahil → neti ayır
+      const birimNet = birim / (1 + satirKdv / 100);
+      const satirNet = birimNet * adet;
+      const satirKdvTutar = satirNet * (satirKdv / 100);
+      const satirBrut = birim * adet; // zaten dahil
+
+      araToplam += satirNet;
+      kdvTutar += satirKdvTutar;
+      genelToplam += satirBrut;
+    } else {
+      // birim fiyat KDV hariç → KDV ekle
+      const satirNet = birim * adet;
+      const satirKdvTutar = satirNet * (satirKdv / 100);
+      const satirBrut = satirNet + satirKdvTutar;
+
+      araToplam += satirNet;
+      kdvTutar += satirKdvTutar;
+      genelToplam += satirBrut;
+    }
+  }
 
   let y = ((doc as any).lastAutoTable?.finalY ?? 260) + 4;
   if (y > 260) { doc.addPage(); y = 20; }
@@ -197,7 +263,7 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     styles: { font: fontFamily, fontSize: 10, cellPadding: 2 },
     body: [
       ["Ara Toplam", "", "", "", "", TL(araToplam)],
-      [`KDV (%${kdvOrani})`, "", "", "", "", TL(kdvTutar)],
+      [`KDV (Toplam)`, "", "", "", "", TL(kdvTutar)],
       ["Genel Toplam", "", "", "", "", TL(genelToplam)],
     ],
     columnStyles: {
@@ -205,6 +271,13 @@ export async function teklifPdfYazdirWeb(siparis: any) {
       5: { cellWidth: 22, halign: "right", fontStyle: "bold" },
     },
   });
+
+  // İsteğe bağlı: sağ üst köşeye bilgi notu
+  doc.setFont(fontFamily, "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(80);
+  const info = `Fiyatlar ${kdvDahil ? "KDV DAHİL" : "KDV HARİÇ"}. Global KDV: %${globalKdv}`;
+  doc.text(info, contentRightX, 287 - 6, { align: "right" });
 
   /* ----- Sayfa numarası ----- */
   const total = doc.getNumberOfPages();
