@@ -2,6 +2,13 @@
 import jsPDF from "jspdf";
 import autoTable, { RowInput } from "jspdf-autotable";
 
+// ✅ Fontları src altından Vite ?url ile al
+// Dosyaların burada olduğundan emin ol:
+//   src/assets/fonts/NotoSans-Regular.ttf
+//   src/assets/fonts/NotoSans-Bold.ttf
+import notoRegUrl from "../assets/fonts/NotoSans-Regular.ttf?url";
+import notoBoldUrl from "../assets/fonts/NotoSans-Bold.ttf?url";
+
 async function loadTtf(
   doc: jsPDF,
   url: string,
@@ -13,6 +20,7 @@ async function loadTtf(
   if (!res.ok) throw new Error(`Font fetch failed: ${url}`);
   const buf = await res.arrayBuffer();
 
+  // ArrayBuffer -> base64 (büyük dosya güvenli)
   let binary = "";
   const bytes = new Uint8Array(buf);
   const chunk = 0x8000;
@@ -30,8 +38,10 @@ async function loadTtf(
 
 async function ensureFontFamily(doc: jsPDF): Promise<string> {
   try {
-    await loadTtf(doc, "/fonts/NotoSans-Regular.ttf", "NotoSans-Regular.ttf", "NotoSans", "normal");
-    await loadTtf(doc, "/fonts/NotoSans-Bold.ttf", "NotoSans-Bold.ttf", "NotoSans", "bold");
+    // ❌ "/fonts/..." yok
+    // ✅ Vite'in verdiği URL'lerle yükleniyor
+    await loadTtf(doc, notoRegUrl, "NotoSans-Regular.ttf", "NotoSans", "normal");
+    await loadTtf(doc, notoBoldUrl, "NotoSans-Bold.ttf", "NotoSans", "bold");
     doc.setFont("NotoSans", "normal");
     return "NotoSans";
   } catch {
@@ -51,7 +61,8 @@ function toDateStr(ts: any | undefined) {
 
 export async function siparisPdfYazdirWeb(siparis: any) {
   const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
-  const fontFamily = await ensureFontFamily(doc); 
+  const fontFamily = await ensureFontFamily(doc);
+
   const sevkTarihi = toDateStr(siparis?.islemeTarihi);
   const kdvOrani = Number(siparis?.kdvOrani ?? 0);
 
@@ -95,7 +106,7 @@ export async function siparisPdfYazdirWeb(siparis: any) {
     startY,
     theme: "grid",
     styles: { font: fontFamily, fontStyle: "normal", fontSize: 10, cellPadding: 2, textColor: 20 },
-    headStyles: { fillColor: [230, 230, 230], textColor: 0, font: fontFamily, fontStyle: "bold" }, // başlık siyah
+    headStyles: { fillColor: [230, 230, 230], textColor: 0, font: fontFamily, fontStyle: "bold" },
     head: [["NO", "MODEL", "RENK", "ADET", "AÇIKLAMA"]],
     body: rows,
     columnStyles: {
@@ -107,14 +118,14 @@ export async function siparisPdfYazdirWeb(siparis: any) {
     },
   });
 
-  // --- Toplamlar + Sevk/KDV/Teslim (SADECE SON SAYFADA, tablodan SONRA)
+  // --- Toplamlar + Sevk/KDV/Teslim (SADECE SON SAYFADA)
   const toplamUrunAdedi = urunler.reduce((t, u) => t + Number(u?.adet || 0), 0);
 
   const pageCount = doc.getNumberOfPages();
-  doc.setPage(pageCount); // son sayfaya git
+  doc.setPage(pageCount);
 
   let y = ((doc as any).lastAutoTable?.finalY ?? 260) + 4;
-  if (y > 260) { // sığmazsa yeni sayfa
+  if (y > 260) {
     doc.addPage();
     y = 20;
   }
@@ -140,7 +151,7 @@ export async function siparisPdfYazdirWeb(siparis: any) {
   doc.text(`KDV (%): ${kdvOrani}`, 110, y2);
   doc.text(`Teslim Tarihi:`, 160, y2);
 
-  // --- Sayfa numaraları (alt bilgi)
+  // --- Sayfa numaraları
   const total = doc.getNumberOfPages();
   for (let i = 1; i <= total; i++) {
     doc.setPage(i);

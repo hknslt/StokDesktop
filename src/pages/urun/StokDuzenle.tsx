@@ -4,7 +4,7 @@ import {
   collection, doc, onSnapshot, orderBy, query, writeBatch
 } from "firebase/firestore";
 import { veritabani } from "../../firebase";
-import { Link, useNavigate } from "react-router-dom";
+import { Link} from "react-router-dom";
 
 type Urun = {
   docId: string;
@@ -18,7 +18,6 @@ type Urun = {
 };
 
 export default function StokDuzenle() {
-  const nav = useNavigate();
   const [rows, setRows] = useState<Urun[]>([]);
   const [ara, setAra] = useState("");
 

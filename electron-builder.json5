@@ -1,43 +1,52 @@
-// @see - https://www.electron.build/configuration/configuration
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "YourAppID",
+
+  "appId": "com.capri.app",
+  "productName": "Capri",
   "asar": true,
-  "productName": "YourAppName",
+
   "directories": {
-    "output": "release/${version}"
+    "output": "release/${version}",
+    // buildResources içine koyduklarını electron-builder otomatik resources'a kopyalar
+    "buildResources": "build"
   },
+
+  // Paketlenirken uygulamaya dahil edilecekler
   "files": [
     "dist",
     "dist-electron"
   ],
-  "mac": {
-    "target": [
-      "dmg"
-    ],
-    "artifactName": "${productName}-Mac-${version}-Installer.${ext}"
-  },
+
+  /* ---------- Windows ---------- */
   "win": {
     "target": [
-      {
-        "target": "nsis",
-        "arch": [
-          "x64"
-        ]
-      }
+      { "target": "nsis", "arch": ["x64"] }
     ],
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}"
+    "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
+    // Windows ikonu (.ico)
+    "icon": "build/icons/win/icon.ico"
   },
+
   "nsis": {
     "oneClick": false,
     "perMachine": false,
     "allowToChangeInstallationDirectory": true,
     "deleteAppDataOnUninstall": false
   },
+
+  /* ---------- macOS ---------- */
+  "mac": {
+    "target": ["dmg"],
+    "artifactName": "${productName}-Mac-${version}-Installer.${ext}",
+    // macOS ikonu (.icns)
+    "icon": "build/icons/mac/icon.icns"
+  },
+
+  /* ---------- Linux ---------- */
   "linux": {
-    "target": [
-      "AppImage"
-    ],
-    "artifactName": "${productName}-Linux-${version}.${ext}"
+    "target": ["AppImage"],
+    "artifactName": "${productName}-Linux-${version}.${ext}",
+    // Linux ikonu (PNG)
+    "icon": "build/icons/png/512x512.png"
   }
 }

@@ -1,5 +1,14 @@
+// src/pdf/teklifPdf.ts
 import jsPDF from "jspdf";
 import autoTable, { RowInput } from "jspdf-autotable";
+
+// ✅ Fontları src altından Vite ?url ile al (build'de doğru URL üretir)
+import notoRegUrl from "../assets/fonts/NotoSans-Regular.ttf?url";
+import notoBoldUrl from "../assets/fonts/NotoSans-Bold.ttf?url";
+
+// (Opsiyonel) Üstte logo basmak istiyorsan bu import kalsın.
+// Dosya şurada olmalı: src/assets/capri_logo_ori.png
+import logoPngUrl from "../assets/capri_logo_ori.png?url";
 
 /* ——— Font yardımcıları ——— */
 async function loadTtf(
@@ -13,6 +22,7 @@ async function loadTtf(
   if (!res.ok) throw new Error(`Font fetch failed: ${url}`);
   const buf = await res.arrayBuffer();
 
+  // ArrayBuffer -> base64 (büyük dosya güvenli, parça parça)
   let binary = "";
   const bytes = new Uint8Array(buf);
   const chunk = 0x8000;
@@ -30,8 +40,10 @@ async function loadTtf(
 
 async function ensureFontFamily(doc: jsPDF): Promise<string> {
   try {
-    await loadTtf(doc, "/fonts/NotoSans-Regular.ttf", "NotoSans-Regular.ttf", "NotoSans", "normal");
-    await loadTtf(doc, "/fonts/NotoSans-Bold.ttf", "NotoSans-Bold.ttf", "NotoSans", "bold");
+    // ❌ Kök yol /fonts/... yok
+    // ✅ Vite ?url ile gelen gerçek URL'ler kullanılıyor
+    await loadTtf(doc, notoRegUrl, "NotoSans-Regular.ttf", "NotoSans", "normal");
+    await loadTtf(doc, notoBoldUrl, "NotoSans-Bold.ttf", "NotoSans", "bold");
     doc.setFont("NotoSans", "normal");
     return "NotoSans";
   } catch {
@@ -41,22 +53,16 @@ async function ensureFontFamily(doc: jsPDF): Promise<string> {
 }
 
 /* ——— Görsel yardımcıları ——— */
-async function loadImageDataUrl(possibleUrls: string[]): Promise<string> {
-  for (const url of possibleUrls) {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const blob = await res.blob();
-      const reader = new FileReader();
-      const p = new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = reject;
-      });
-      reader.readAsDataURL(blob);
-      return await p;
-    } catch {}
-  }
-  throw new Error("Logo bulunamadı");
+async function toDataUrl(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Image fetch failed: ${url}`);
+  const blob = await res.blob();
+  const reader = new FileReader();
+  return await new Promise<string>((resolve, reject) => {
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 /* ——— küçük yardımcılar ——— */
@@ -65,10 +71,12 @@ const TL = (n: number) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
 const NUM = (n: any) => {
   const v = Number(n);
   return Number.isFinite(v) ? v : 0;
 };
+
 function toDateStr(ts: any | undefined) {
   try {
     const d = ts?.toDate?.() ?? (ts instanceof Date ? ts : null);
@@ -115,30 +123,26 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     toDateStr(siparis?.tarih) ||
     new Date().toLocaleDateString("tr-TR");
 
-  /* ----- Logo ----- */
+  /* ----- Logo (opsiyonel) ----- */
   let headerBottomY = 20;
   try {
-    const logoDataUrl = await loadImageDataUrl([
-      "/src/assets/capri_logo_ori.png",
-      "/assets/capri_logo_ori.png",
-      "src/assets/capri_logo_ori.png",
-    ]);
+    const logoDataUrl = await toDataUrl(logoPngUrl);
 
     const img = new Image();
     img.src = logoDataUrl;
     await new Promise((res) => (img.onload = res));
 
-    const pxWidth = img.width;
-    const pxHeight = img.height;
+    const pxW = img.width;
+    const pxH = img.height;
 
     const maxW = 80; // mm
     const maxH = 30; // mm
 
     let w = maxW;
-    let h = (pxHeight / pxWidth) * w;
+    let h = (pxH / pxW) * w;
     if (h > maxH) {
       h = maxH;
-      w = (pxWidth / pxHeight) * h;
+      w = (pxW / pxH) * h;
     }
 
     const logoX = leftMargin;
@@ -146,7 +150,9 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     doc.addImage(logoDataUrl, "PNG", logoX, logoY, w, h);
 
     headerBottomY = Math.max(headerBottomY, logoY + h);
-  } catch {}
+  } catch {
+    // logo opsiyonel, hata verirse yoksay
+  }
 
   /* ----- Başlık ----- */
   doc.setFont(fontFamily, "bold");
@@ -212,7 +218,7 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     },
   });
 
-  /* ----- Toplamlar: dinamik KDV / kdvDahil desteği ----- */
+  /* ----- Toplamlar: dinamik KDV / kdvDahil ----- */
   const globalKdv = resolveKdvOrani(siparis); // %
   const kdvDahil = isKdvDahil(siparis);
 
@@ -224,7 +230,7 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     const adet = NUM(u?.adet);
     const birim = NUM(u?.birimFiyat);
 
-    // Ürün üzerinde farklı oran varsa onu kullan
+    // Ürün üzerinde farklı KDV oranı varsa onu kullan
     const satirKdv = (() => {
       const cands = [u?.kdvOrani, u?.kdv, u?.kdvYuzde].map(NUM);
       const found = cands.find((x) => x > 0 && x <= 100);
@@ -232,7 +238,7 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     })();
 
     if (kdvDahil) {
-      // birim fiyat KDV dahil → neti ayır
+      // Birim fiyat KDV dahil → nete çevir
       const birimNet = birim / (1 + satirKdv / 100);
       const satirNet = birimNet * adet;
       const satirKdvTutar = satirNet * (satirKdv / 100);
@@ -242,7 +248,7 @@ export async function teklifPdfYazdirWeb(siparis: any) {
       kdvTutar += satirKdvTutar;
       genelToplam += satirBrut;
     } else {
-      // birim fiyat KDV hariç → KDV ekle
+      // Birim fiyat KDV hariç → KDV ekle
       const satirNet = birim * adet;
       const satirKdvTutar = satirNet * (satirKdv / 100);
       const satirBrut = satirNet + satirKdvTutar;
@@ -272,7 +278,7 @@ export async function teklifPdfYazdirWeb(siparis: any) {
     },
   });
 
-  // İsteğe bağlı: sağ üst köşeye bilgi notu
+  // Bilgi notu (sağ altta)
   doc.setFont(fontFamily, "normal");
   doc.setFontSize(9);
   doc.setTextColor(80);

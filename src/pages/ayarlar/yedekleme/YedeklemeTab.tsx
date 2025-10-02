@@ -1,8 +1,12 @@
-import { useMemo, useRef, useState } from "react";
-import { collection, doc, getDocs, setDoc, addDoc } from "firebase/firestore";
-import { veritabani } from "../../firebase";
+import { useMemo, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import { veritabani } from "../../../firebase";
 
-/* ----------------------- yardımcılar ----------------------- */
+import { serializeForBackup } from "./utils/firestore-serialize";
+import { flatten, toCSV, safeName } from "./utils/table-helpers";
+import { downloadBlob } from "./utils/download";
+
+/* ----------------------- tipler ve sabitler ----------------------- */
 type ExportSet = "renkler" | "urunler" | "musteriler" | "siparisler" | "ozel";
 
 const PRESETS: { key: ExportSet; path?: string; label: string }[] = [
@@ -13,87 +17,31 @@ const PRESETS: { key: ExportSet; path?: string; label: string }[] = [
   { key: "ozel", label: "📁 Özel Yol" },
 ];
 
-// objeyi dot-key olacak şekilde düzleştir
-function flatten(obj: any, prefix = "", out: Record<string, any> = {}) {
-  if (obj == null) return out;
-  for (const [k, v] of Object.entries(obj)) {
-    const key = prefix ? `${prefix}.${k}` : k;
-    if (Array.isArray(v)) {
-      out[key] =
-        typeof v[0] === "object" ? JSON.stringify(v) : (v as any[]).join("|");
-    } else if (v instanceof Date) {
-      out[key] = v.toISOString();
-    } else if (v && typeof v === "object") {
-      flatten(v, key, out);
-    } else {
-      out[key] = v;
-    }
-  }
-  return out;
-}
-
-// dot-key'leri tekrar iç içe nesneye çevir
-function unflatten(obj: Record<string, any>) {
-  const result: any = {};
-  for (const [k, v] of Object.entries(obj)) {
-    const parts = k.split(".");
-    let cur = result;
-    for (let i = 0; i < parts.length; i++) {
-      const p = parts[i];
-      if (i === parts.length - 1) {
-        cur[p] = v;
-      } else {
-        cur[p] ??= {};
-        cur = cur[p];
-      }
-    }
-  }
-  return result;
-}
-
-// CSV üret
-function toCSV(rows: Record<string, any>[], headers: string[]) {
-  const esc = (x: any) => {
-    const s = x == null ? "" : String(x);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const head = headers.join(",");
-  const body = rows.map((r) => headers.map((h) => esc(r[h])).join(",")).join("\n");
-  return `${head}\n${body}`;
-}
-
-// indir
-function downloadBlob(filename: string, data: BlobPart, type: string) {
-  const blob = new Blob([data], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
+const fmtTime = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}_${String(d.getHours()).padStart(2, "0")}-${String(
+    d.getMinutes()
+  ).padStart(2, "0")}-${String(d.getSeconds()).padStart(2, "0")}`;
 
 /* ----------------------- bileşen ----------------------- */
 export default function YedeklemeTab() {
   const [secim, setSecim] = useState<ExportSet>("renkler");
   const [ozelYol, setOzelYol] = useState("");
-  const [yuk, setYuk] = useState<null | "load" | "json" | "csv" | "xlsx" | "import">(null);
+  const [yuk, setYuk] = useState<null | "load" | "json" | "csv" | "xlsx">(null);
   const [durum, setDurum] = useState<string | null>(null);
 
   const [tumSatirlar, setTumSatirlar] = useState<any[]>([]);
   const [alanlar, setAlanlar] = useState<string[]>([]);
   const [seciliAlanlar, setSeciliAlanlar] = useState<Set<string>>(new Set());
-  const fileRef = useRef<HTMLInputElement>(null);
+  
 
   const etkinYol = useMemo(() => {
     const preset = PRESETS.find((p) => p.key === secim);
     return preset?.path || ozelYol.trim();
   }, [secim, ozelYol]);
 
-  // seç-kaldır yardımcıları
+  /* ----------------------- seçim yardımcıları ----------------------- */
   function hepsiniSec() {
     setSeciliAlanlar(new Set(alanlar));
   }
@@ -108,6 +56,7 @@ export default function YedeklemeTab() {
     });
   }
 
+  /* ----------------------- veri yükleme ----------------------- */
   async function verileriYukle() {
     if (!etkinYol) {
       setDurum("Lütfen bir koleksiyon/yol seçin.");
@@ -117,11 +66,10 @@ export default function YedeklemeTab() {
       setYuk("load");
       setDurum(null);
       const snap = await getDocs(collection(veritabani, etkinYol));
-      const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const rows = snap.docs.map((d) => ({ ...d.data() })); // <-- id YOK
       setTumSatirlar(rows);
 
-      // alanları belirle (union)
-      const keys = new Set<string>(["id"]);
+      const keys = new Set<string>();
       for (const r of rows) {
         const flat = flatten(r);
         Object.keys(flat).forEach((k) => keys.add(k));
@@ -139,7 +87,7 @@ export default function YedeklemeTab() {
 
   function filtreliFlatRows() {
     const selected = seciliAlanlar.size ? Array.from(seciliAlanlar) : alanlar;
-    const keys = Array.from(new Set(["id", ...selected]));
+    const keys = Array.from(new Set([...selected])); // id yok
     const out: Record<string, any>[] = [];
     for (const r of tumSatirlar) {
       const flat = flatten(r);
@@ -150,27 +98,28 @@ export default function YedeklemeTab() {
     return out;
   }
 
-  function exportJSON() {
+  /* ----------------------- EXPORTERS ----------------------- */
+  // JSON: okunaklı + tipler etiketli + id YOK
+  function exportJSON(manualFileName?: string) {
     if (!tumSatirlar.length) {
       setDurum("Önce verileri yükleyin.");
       return;
     }
     try {
       setYuk("json");
-      const flatRows = filtreliFlatRows();
-      // JSON çıktısını tekrar orijinal yapıya döndürelim (daha okunur)
-      const unflat = flatRows.map((r) => {
-        const { id, ...rest } = r;
-        return { id, ...unflatten(rest) };
-      });
+      const safe = tumSatirlar.map((r) => serializeForBackup(r)); // id yok
+
+      const fname =
+        manualFileName || `${safeName(etkinYol)}__${fmtTime(new Date())}.json`;
+
       downloadBlob(
-        `${(etkinYol || "koleksiyon").replace(/\//g, "_")}.json`,
+        fname,
         JSON.stringify(
           {
             path: etkinYol,
             exportedAt: new Date().toISOString(),
-            count: unflat.length,
-            data: unflat,
+            count: safe.length,
+            data: safe,
           },
           null,
           2
@@ -183,6 +132,7 @@ export default function YedeklemeTab() {
     }
   }
 
+  // CSV: id YOK, iç içe alanlar tek hücrede JSON string
   function exportCSV() {
     if (!tumSatirlar.length) {
       setDurum("Önce verileri yükleyin.");
@@ -191,12 +141,10 @@ export default function YedeklemeTab() {
     try {
       setYuk("csv");
       const rows = filtreliFlatRows();
-      const headers = Array.from(
-        new Set(["id", ...(seciliAlanlar.size ? Array.from(seciliAlanlar) : alanlar)])
-      );
+      const headers = Array.from(new Set([...seciliAlanlar])); // id yok
       const csv = toCSV(rows, headers);
       downloadBlob(
-        `${(etkinYol || "koleksiyon").replace(/\//g, "_")}.csv`,
+        `${safeName(etkinYol)}__${fmtTime(new Date())}.csv`,
         csv,
         "text/csv;charset=utf-8"
       );
@@ -206,7 +154,7 @@ export default function YedeklemeTab() {
     }
   }
 
-  // --------- Excel (XLSX) dışa aktarma ----------
+  // XLSX: id YOK
   async function exportXLSX() {
     if (!tumSatirlar.length) {
       setDurum("Önce verileri yükleyin.");
@@ -214,15 +162,11 @@ export default function YedeklemeTab() {
     }
     try {
       setYuk("xlsx");
-      // Dinamik import — paket: npm i xlsx
       const xlsx: any = await import("xlsx");
 
       const rows = filtreliFlatRows();
-      const headers = Array.from(
-        new Set(["id", ...(seciliAlanlar.size ? Array.from(seciliAlanlar) : alanlar)])
-      );
+      const headers = Array.from(new Set([...seciliAlanlar]));
 
-      // JSON -> sheet (başlıkları sırayla veriyoruz)
       const data = rows.map((r) => {
         const o: Record<string, any> = {};
         headers.forEach((h) => (o[h] = r[h]));
@@ -230,12 +174,8 @@ export default function YedeklemeTab() {
       });
       const ws = xlsx.utils.json_to_sheet(data, { header: headers });
 
-      // kolon genişlikleri (başlık ve hücre uzunluklarına göre)
       const colWidths = headers.map((h) => {
-        const maxCell = Math.max(
-          String(h).length,
-          ...rows.map((r) => String(r[h] ?? "").length)
-        );
+        const maxCell = Math.max(String(h).length, ...rows.map((r) => String(r[h] ?? "").length));
         return { wch: Math.min(50, Math.max(12, maxCell + 1)) };
       });
       (ws as any)["!cols"] = colWidths;
@@ -245,7 +185,7 @@ export default function YedeklemeTab() {
 
       const wbout = xlsx.write(wb, { type: "array", bookType: "xlsx" });
       downloadBlob(
-        `${(etkinYol || "koleksiyon").replace(/\//g, "_")}.xlsx`,
+        `${safeName(etkinYol)}__${fmtTime(new Date())}.xlsx`,
         wbout,
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       );
@@ -257,65 +197,7 @@ export default function YedeklemeTab() {
     }
   }
 
-  // ----- IMPORT (geri yükleme) -----
-  type ImportMode = "merge" | "overwrite" | "autoIdIfMissing";
-  const [mode, setMode] = useState<ImportMode>("merge");
-  const [preserveId, setPreserveId] = useState(true); // JSON içindeki id korunacak mı?
-  function openFile() {
-    fileRef.current?.click();
-  }
-  async function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!etkinYol) {
-      setDurum("Lütfen hedef koleksiyonu seçin.");
-      e.target.value = "";
-      return;
-    }
-
-    try {
-      setYuk("import");
-      setDurum(null);
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-
-      let data: any[] = [];
-      if (Array.isArray(parsed)) data = parsed;
-      else if (parsed && Array.isArray(parsed.data)) data = parsed.data;
-      else throw new Error("JSON biçimi tanınmadı. Dizi ya da { data: [] } bekleniyor.");
-
-      let ok = 0,
-        fail = 0;
-      for (const item of data) {
-        try {
-          const { id, ...rest } = item || {};
-          if (preserveId && id) {
-            await setDoc(doc(veritabani, etkinYol, String(id)), rest, {
-              merge: mode === "merge",
-            });
-          } else {
-            if (mode === "overwrite" && id) {
-              await setDoc(doc(veritabani, etkinYol, String(id)), rest); // tam overwrite
-            } else {
-              await addDoc(collection(veritabani, etkinYol), item);
-            }
-          }
-          ok++;
-        } catch {
-          fail++;
-        }
-      }
-      setDurum(
-        `İçe aktarma tamamlandı. Başarılı: ${ok}, Hatalı: ${fail}.`
-      );
-    } catch (err: any) {
-      setDurum(err?.message || "İçe aktarılamadı.");
-    } finally {
-      setYuk(null);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-
+  /* ----------------------- UI ----------------------- */
   return (
     <div style={{ display: "grid", gap: 12, maxWidth: 920 }}>
       {/* kaynak seçimi */}
@@ -366,13 +248,9 @@ export default function YedeklemeTab() {
 
       {/* alan seçimi + dışa aktarma */}
       <div className="card" style={{ display: "grid", gap: 10 }}>
-        <div
-          style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
-        >
-          <div style={{ fontWeight: 700 }}>Alanlar</div>
-          <div className="tag">
-            Seçili: {seciliAlanlar.size || alanlar.length}
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 700 }}>Alanlar (CSV/Excel için)</div>
+          <div className="tag">Seçili: {seciliAlanlar.size || alanlar.length}</div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
             <button className="theme-btn" onClick={hepsiniSec}>
               Tümünü Seç
@@ -405,11 +283,7 @@ export default function YedeklemeTab() {
                 className="cek-kutu"
                 style={{ display: "flex", gap: 8, alignItems: "center" }}
               >
-                <input
-                  type="checkbox"
-                  checked={sel}
-                  onChange={() => toggleAlan(k)}
-                />
+                <input type="checkbox" checked={sel} onChange={() => toggleAlan(k)} />
                 <span
                   style={{
                     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
@@ -429,11 +303,7 @@ export default function YedeklemeTab() {
         </div>
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button
-            className="theme-btn"
-            onClick={exportJSON}
-            disabled={!tumSatirlar.length || yuk !== null}
-          >
+          <button className="theme-btn" onClick={() => exportJSON()} disabled={!tumSatirlar.length || yuk !== null}>
             {yuk === "json" ? "Hazırlanıyor…" : "JSON indir"}
           </button>
           <button onClick={exportCSV} disabled={!tumSatirlar.length || yuk !== null}>
@@ -442,53 +312,6 @@ export default function YedeklemeTab() {
           <button onClick={exportXLSX} disabled={!tumSatirlar.length || yuk !== null}>
             {yuk === "xlsx" ? "Hazırlanıyor…" : "Excel indir"}
           </button>
-        </div>
-      </div>
-
-      {/* içe aktarma */}
-      <div className="card" style={{ display: "grid", gap: 10 }}>
-        <div style={{ fontWeight: 700 }}>Geri Yükleme (JSON)</div>
-
-        <div style={{ display: "grid", gap: 8 }}>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <label className="cek-kutu" style={{ userSelect: "none" }}>
-              <input
-                type="checkbox"
-                checked={preserveId}
-                onChange={(e) => setPreserveId(e.target.checked)}
-              />
-              <span>
-                JSON’daki <b>id</b> alanını koru
-              </span>
-            </label>
-
-            <select
-              className="input"
-              value={mode}
-              onChange={(e) => setMode(e.target.value as any)}
-            >
-              <option value="merge">Mevcut ile Birleştir (merge)</option>
-              <option value="overwrite">Tam Üzerine Yaz (overwrite)</option>
-              <option value="autoIdIfMissing">id yoksa Otomatik ID</option>
-            </select>
-
-            <button onClick={openFile} disabled={yuk !== null || !etkinYol}>
-              {yuk === "import" ? "Yükleniyor…" : "JSON Seç ve Yükle"}
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="application/json,.json"
-              style={{ display: "none" }}
-              onChange={onFilePicked}
-            />
-          </div>
-
-          <div className="tag">
-            Biçimler: <code>{"[ {...} ]"}</code> veya{" "}
-            <code>{"{ path, data: [ ... ] }"}</code>. Hedef koleksiyon:{" "}
-            <b>{etkinYol || "—"}</b>
-          </div>
         </div>
       </div>
 

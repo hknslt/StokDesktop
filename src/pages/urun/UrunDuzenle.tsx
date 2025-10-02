@@ -4,16 +4,6 @@ import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { veritabani, depolama } from "../../firebase";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-type Urun = {
-  id: number;
-  urunAdi: string;
-  urunKodu: string;
-  adet: number;
-  renk?: string;
-  aciklama?: string;
-  kapakResimYolu?: string | null;
-  resimYollari?: string[];
-};
 
 type ImageMode = "upload" | "url";
 
@@ -162,12 +152,6 @@ export default function UrunDuzenle() {
     }
     setProgress(100);
     return urls;
-  }
-  function cancelUploads() {
-    for (const t of activeTasks.current) { try { t.cancel(); } catch {} }
-    activeTasks.current = [];
-    setDurum("Yükleme iptal edildi.");
-    setProgress(0);
   }
 
   // ---- mevcut galeriden kaldır ----

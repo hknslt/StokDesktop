@@ -2,7 +2,11 @@
 import jsPDF from "jspdf";
 import autoTable, { RowInput } from "jspdf-autotable";
 
-// ── siparisPdf.ts ile AYNI font yükleme yardımcıları ──────────────
+// ✅ Fontları src altından Vite ?url ile al (build'de doğru URL üretir)
+import notoRegUrl from "../assets/fonts/NotoSans-Regular.ttf?url";
+import notoBoldUrl from "../assets/fonts/NotoSans-Bold.ttf?url";
+
+// ── Ortak font yükleme yardımcıları ───────────────────────────────
 async function loadTtf(
   doc: jsPDF,
   url: string,
@@ -25,16 +29,18 @@ async function loadTtf(
     );
   }
   const b64 = btoa(binary);
+
   doc.addFileToVFS(vfsName, b64);
   doc.addFont(vfsName, family, style);
 }
 
-/** Noto Sans yüklemeyi dener; başarıysa "NotoSans", değilse "helvetica" döner */
+/** Noto Sans yükler; başarıysa "NotoSans", değilse "helvetica" döner */
 async function ensureFontFamily(doc: jsPDF): Promise<string> {
   try {
-    // istersen cache kırmak için ?v=1 ekleyebilirsin
-    await loadTtf(doc, "/fonts/NotoSans-Regular.ttf", "NotoSans-Regular.ttf", "NotoSans", "normal");
-    await loadTtf(doc, "/fonts/NotoSans-Bold.ttf", "NotoSans-Bold.ttf", "NotoSans", "bold");
+    // ❌ KÖK YOL YOK: "/fonts/..." kullanmıyoruz
+    // ✅ Vite'in verdiği URL'leri kullanıyoruz
+    await loadTtf(doc, notoRegUrl, "NotoSans-Regular.ttf", "NotoSans", "normal");
+    await loadTtf(doc, notoBoldUrl, "NotoSans-Bold.ttf", "NotoSans", "bold");
     doc.setFont("NotoSans", "normal");
     return "NotoSans";
   } catch {
@@ -42,7 +48,6 @@ async function ensureFontFamily(doc: jsPDF): Promise<string> {
     return "helvetica";
   }
 }
-
 // ──────────────────────────────────────────────────────────────────
 
 export type StokSatir = {
@@ -53,7 +58,7 @@ export type StokSatir = {
 };
 
 export async function stokPdfIndir(rows: StokSatir[], opts?: { baslik?: string }) {
-  // siparisPdf ile aynı: mm + a4 + compress
+  // mm + a4 + sıkıştırma
   const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
   const family = await ensureFontFamily(doc);
 
@@ -94,23 +99,23 @@ export async function stokPdfIndir(rows: StokSatir[], opts?: { baslik?: string }
     },
     headStyles: {
       fillColor: [230, 230, 230],
-      textColor: 0,      // başlık siyah
+      textColor: 0,
       font: family,
       fontStyle: "bold",
     },
     head: [["ÜRÜN ADI", "KOD", "RENK", "STOK", ""]],
     body,
-    // genişlikler mm cinsinden (A4: 210mm)
+    // A4 genişlik ~210mm
     columnStyles: {
-      0: { cellWidth: 90 },        // Ürün Adı
-      1: { cellWidth: 40 },        // Kod
-      2: { cellWidth: 40 },        // Renk
+      0: { cellWidth: 90 },               // Ürün Adı
+      1: { cellWidth: 40 },               // Kod
+      2: { cellWidth: 40 },               // Renk
       3: { cellWidth: 18, halign: "right" }, // Stok
-      4: { cellWidth: 20 },        // boş
+      4: { cellWidth: 20 },               // boş
     },
   });
 
-  // Alt bilgi: sayfa numaraları (siparisPdf ile aynı stil)
+  // Alt bilgi: sayfa numaraları
   const total = doc.getNumberOfPages();
   for (let i = 1; i <= total; i++) {
     doc.setPage(i);
@@ -120,7 +125,7 @@ export async function stokPdfIndir(rows: StokSatir[], opts?: { baslik?: string }
     doc.text(`Sayfa ${i}/${total}`, 200, 287, { align: "right" });
   }
 
-  // Önizleme (önce yeni pencerede; engellenirse kaydet)
+  // Önizleme -> engellenirse indir
   try {
     doc.output("dataurlnewwindow");
   } catch {

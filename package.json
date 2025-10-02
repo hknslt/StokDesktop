@@ -1,7 +1,11 @@
 {
   "name": "capri",
+  "productName": "Capri",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.2.0",
+  "description": "Capri stok ve sipariş masaüstü uygulaması",
+  "author": "Hakan SALT",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,6 +15,7 @@
   },
   "dependencies": {
     "firebase": "^12.1.0",
+    "jsbarcode": "^3.12.1",
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
     "react": "^18.2.0",
@@ -20,6 +25,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/jsbarcode": "^3.11.4",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
     "@typescript-eslint/eslint-plugin": "^7.1.1",

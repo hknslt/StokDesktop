@@ -2,7 +2,7 @@ import { useState } from "react";
 import ProfilTab from "./ProfilTab";
 import SifreTab from "./SifreTab";
 import RenklerTab from "./RenklerTab";
-import YedeklemeTab from "./YedeklemeTab";
+import YedeklemeTab from "./yedekleme/YedeklemeTab";
 
 export type Sekme = "profil" | "sifre" | "renkler" | "yedekleme";
 

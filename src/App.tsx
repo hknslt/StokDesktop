@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import {
-  BrowserRouter,
+  HashRouter,
   Routes,
   Route,
   Navigate,
   NavLink,
-  Link,
   useLocation,
+  
 } from "react-router-dom";
 import { yetki, veritabani } from "./firebase";
 import ThemeProvider, { useTheme } from "./theme/ThemeProvider";
@@ -197,11 +197,11 @@ function UygulamaIc() {
 
   if (!uid) {
     return (
-      <BrowserRouter>
+      <HashRouter>
         <Routes>
           <Route path="*" element={<GirisSayfasi />} />
         </Routes>
-      </BrowserRouter>
+      </HashRouter>
     );
   }
 
@@ -213,7 +213,7 @@ function UygulamaIc() {
   const adSoyad = [firstName, lastName].filter(Boolean).join(" ");
 
   return (
-    <BrowserRouter>
+    <HashRouter>
       <PanelYerlesim userEmail={userEmail} adSoyad={adSoyad} role={role!}>
         <Routes>
           <Route path="/" element={<Navigate to="/stok" replace />} />
@@ -246,7 +246,7 @@ function UygulamaIc() {
 
         </Routes>
       </PanelYerlesim>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 

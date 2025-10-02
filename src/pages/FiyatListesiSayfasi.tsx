@@ -357,11 +357,6 @@ export default function FiyatListesiSayfasi() {
     }
   }
 
-  function siralamayiSifirla() {
-    setSortKey("ad");
-    setSortDir("asc");
-  }
-
   const progressPct = saveTotal > 0 ? Math.round((saveDone / saveTotal) * 100) : 0;
   const delPct = silTotal > 0 ? Math.round((silDone / silTotal) * 100) : 0;
 
