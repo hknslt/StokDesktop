@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { veritabani, depolama } from "../../firebase";
 import { Link, useNavigate, useParams } from "react-router-dom";
-
 
 type ImageMode = "upload" | "url";
 
@@ -24,6 +23,9 @@ function parseUrlList(val: string): string[] {
     .filter(Boolean);
 }
 
+// 🔹 Renk doküman tipi
+type RenkDoc = { id: string; ad: string; adLower?: string | null };
+
 export default function UrunDuzenle() {
   const { id } = useParams(); // docId (string)
   const navigate = useNavigate();
@@ -34,7 +36,7 @@ export default function UrunDuzenle() {
 
   const [urunKodu, setUrunKodu] = useState("");
   const [urunAdi, setUrunAdi] = useState("");
-  const [renk, setRenk] = useState("");
+  const [renk, setRenk] = useState(""); // <-- dropdown kontrolü (yazı yok)
   const [adet, setAdet] = useState<number>(0);
   const [aciklama, setAciklama] = useState("");
 
@@ -55,6 +57,36 @@ export default function UrunDuzenle() {
   const [kapakUrl, setKapakUrl] = useState("");
   const [digerUrlMetni, setDigerUrlMetni] = useState("");
 
+  // 🔹 Renkler dropdown state (StokSayfasi ile aynı mantık)
+  const [renkler, setRenkler] = useState<RenkDoc[]>([]);
+  const [renkAcik, setRenkAcik] = useState(false);
+  const renkKutuRef = useRef<HTMLDivElement | null>(null);
+
+  // 🔹 Renkleri canlı oku
+  useEffect(() => {
+    const qy = query(collection(veritabani, "renkler"), orderBy("adLower", "asc"));
+    return onSnapshot(qy, (snap) => {
+      const list: RenkDoc[] = snap.docs
+        .map((d) => {
+          const x = d.data() as any;
+          const ad = String(x.ad ?? "").trim();
+          return { id: d.id, ad, adLower: x.adLower ?? ad.toLowerCase() };
+        })
+        .filter((r) => r.ad);
+      setRenkler(list);
+    });
+  }, []);
+
+  // 🔹 Dışarı tıklanınca renk menüsünü kapat
+  useEffect(() => {
+    function kapat(e: MouseEvent) {
+      if (!renkKutuRef.current) return;
+      if (!renkKutuRef.current.contains(e.target as Node)) setRenkAcik(false);
+    }
+    document.addEventListener("mousedown", kapat);
+    return () => document.removeEventListener("mousedown", kapat);
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
@@ -68,7 +100,7 @@ export default function UrunDuzenle() {
         const x = snap.data() as any;
         setUrunKodu(String(x.urunKodu ?? ""));
         setUrunAdi(String(x.urunAdi ?? ""));
-        setRenk(x.renk ?? "");
+        setRenk(x.renk ?? ""); // dropdown başlangıç değeri
         setAdet(Number(x.adet ?? 0));
         setAciklama(x.aciklama ?? "");
         setKapakResimYolu(x.kapakResimYolu ?? null);
@@ -125,7 +157,7 @@ export default function UrunDuzenle() {
         const task = uploadBytesResumable(r, file);
         activeTasks.current.push(task);
 
-        const t = setTimeout(() => { try { task.cancel(); } catch {} reject(new Error("Yükleme zaman aşımı (60sn). Storage/bucket/rules kontrol edin.")); }, ms);
+        const t = setTimeout(() => { try { task.cancel(); } catch { } reject(new Error("Yükleme zaman aşımı (60sn). Storage/bucket/rules kontrol edin.")); }, ms);
 
         task.on(
           "state_changed",
@@ -178,7 +210,7 @@ export default function UrunDuzenle() {
       } else {
         // Upload: tek dropzone; yıldızlı olan kapak
         if (files.length) {
-          const up = await uploadAll(id, files);
+          const up = await uploadAll(id!, files);
           const ci = Math.min(Math.max(0, coverIndex), up.length - 1);
           cover = up[ci] ?? cover;
           eklenecek = up.filter((_, i) => i !== ci);
@@ -188,7 +220,7 @@ export default function UrunDuzenle() {
       await updateDoc(doc(veritabani, "urunler", String(id)), {
         urunKodu: urunKodu.trim(),
         urunAdi: urunAdi.trim(),
-        renk: renk.trim() || null,
+        renk: renk.trim() || null, // <-- dropdown değeri (yazı yok)
         adet: Number(adet) || 0,
         aciklama: aciklama.trim() || null,
         kapakResimYolu: cover ?? null,
@@ -223,8 +255,93 @@ export default function UrunDuzenle() {
         <div style={{ display: "grid", gap: 10 }}>
           <input className="input" placeholder="Ürün Kodu *" value={urunKodu} onChange={e => setUrunKodu(e.target.value)} />
           <input className="input" placeholder="Ürün Adı *" value={urunAdi} onChange={e => setUrunAdi(e.target.value)} />
-          <input className="input" placeholder="Renk" value={renk} onChange={e => setRenk(e.target.value)} />
-          <input className="input" type="number" placeholder="Adet" value={String(adet)} onChange={e => setAdet(Number(e.target.value))} />
+
+          {/* 🔹 Renk: sadece listeden seçilecek, yazılamaz (StokSayfasi ile aynı) */}
+          <div ref={renkKutuRef} className="renk-select-wrap" style={{ position: "relative" }}>
+            <button
+              type="button"
+              className="input renk-select-btn"
+              onClick={() => setRenkAcik(a => !a)}
+              title="Renk seç"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ opacity: renk ? 1 : 0.7 }}>
+                {renk ? renk : "Renk seçin"}
+              </span>
+              <span aria-hidden>▾</span>
+            </button>
+
+            {renkAcik && (
+              <div
+                className="renk-menu"
+                role="listbox"
+                style={{
+                  position: "absolute",
+                  zIndex: 20,
+                  top: "calc(100% + 6px)",
+                  left: 0,
+                  right: 0,
+                  background: "var(--input-bg)",
+                  color: "var(--txt)",
+                  border: "1px solid var(--panel-bdr)",
+                  borderRadius: 10,
+                  boxShadow: "0 6px 28px rgba(0,0,0,.18)",
+                  maxHeight: 240,
+                  overflow: "auto",
+                }}
+              >
+                {/* Seçimi temizle (opsiyonel) */}
+                <div
+                  className="renk-item"
+                  role="option"
+                  onClick={() => { setRenk(""); setRenkAcik(false); }}
+                  style={{
+                    padding: "10px 12px",
+                    cursor: "pointer",
+                    fontSize: 14,
+                    borderBottom: "1px solid var(--panel-bdr)",
+                    opacity: .9
+                  }}
+                >
+                  (Seçimi temizle)
+                </div>
+
+                {renkler.map((r) => (
+                  <div
+                    key={r.id}
+                    className="renk-item"
+                    role="option"
+                    aria-selected={renk === r.ad}
+                    onClick={() => { setRenk(r.ad); setRenkAcik(false); }}
+                    style={{
+                      padding: "10px 12px",
+                      cursor: "pointer",
+                      fontSize: 14,
+                      background: renk === r.ad ? "color-mix(in oklab, var(--ana) 14%, var(--input-bg))" : "transparent"
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in oklab, var(--ana) 10%, var(--input-bg))")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = renk === r.ad ? "color-mix(in oklab, var(--ana) 14%, var(--input-bg))" : "transparent")}
+                  >
+                    {r.ad}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <input
+            className="input"
+            type="number"
+            placeholder="Adet"
+            value={String(adet)}
+            onChange={e => setAdet(Number(e.target.value))}
+          />
           <textarea className="input" placeholder="Açıklama" value={aciklama} onChange={e => setAciklama(e.target.value)} style={{ minHeight: 120 }} />
         </div>
 

@@ -140,7 +140,7 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
       // 2) Firestore sil
       await deleteDoc(doc(veritabani, "users", k.uid));
 
-      setDurum("Kullanıcı tamamen silindi (Auth + Firestore veya Auth yoktu).");
+      setDurum("Kullanıcı tamamen silindi.");
     } catch (e: any) {
       console.error("[SIL] final error:", e);
       setDurum(e?.message ?? "Silme başarısız.");
@@ -154,7 +154,7 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
       {/* Ekleme kartı */}
       <div className="card" style={{ opacity: rol === "admin" ? 1 : .6 }}>
         <h3 style={{ marginTop: 0 }}>
-          Yeni Kullanıcı Ekle {rol !== "admin" && <small>(yalnızca admin)</small>}
+          Yeni Kullanıcı Ekle {rol !== "admin" && <small>(Yalnızca Admin)</small>}
         </h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12 }}>

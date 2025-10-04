@@ -8,7 +8,7 @@ import {
   Navigate,
   NavLink,
   useLocation,
-  
+  useNavigate, // <<< eklendi
 } from "react-router-dom";
 import { yetki, veritabani } from "./firebase";
 import ThemeProvider, { useTheme } from "./theme/ThemeProvider";
@@ -68,9 +68,12 @@ function usePageTitle() {
   if (pathname.startsWith("/fiyat-listeleri")) return "Fiyat Listeleri";
   if (pathname.startsWith("/musteri/yeni")) return "Yeni Müşteri";
   if (pathname.startsWith("/musteriler")) return "Müşteriler";
+  if(pathname.startsWith("/musteri/")) return "Müşteri Detay"
   if (pathname.startsWith("/urun/") && pathname.endsWith("/duzenle")) return "Ürün Düzenle";
   if (pathname.startsWith("/urun/")) return "Ürün Detayı";
   if (pathname.startsWith("/kullanicilar")) return "Kullanıcılar";
+  if (pathname.startsWith("/loglar")) return "Loglar"
+  if (pathname.startsWith("/ayarlar")) return "Ayarlar"
   return "Panel";
 }
 
@@ -79,6 +82,27 @@ function PanelYerlesim(
 ) {
   const { theme, toggle } = useTheme();
   const pageTitle = usePageTitle();
+
+  // <<< REFRESH için eklendi
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [yenileniyor, setYenileniyor] = useState(false);
+
+  // Soft refresh: route’u yeniden mount ettir (useEffect’ler tekrar çalışır)
+  const softRefresh = () => {
+    if (yenileniyor) return;
+    setYenileniyor(true);
+    const { pathname, search, hash } = location;
+    const sep = search ? "&" : "?";
+    navigate(`${pathname}${search}${sep}_r=${Date.now()}${hash || ""}`, { replace: true });
+    setTimeout(() => setYenileniyor(false), 400);
+  };
+
+  // Hard refresh: sayfayı tamamen yenile
+  const hardRefresh = () => {
+    window.location.reload();
+  };
+  // >>>>
 
   useEffect(() => {
     document.body.setAttribute("data-view", "panel");
@@ -94,7 +118,6 @@ function PanelYerlesim(
         {/* Logo */}
         <div className="brand brand-logo-only">
           <img src={logo} alt="Capri" className="brand-logo" />
-
         </div>
 
         {/* Kullanıcı kartı */}
@@ -123,8 +146,6 @@ function PanelYerlesim(
           <NavLink to="/kullanicilar"><span className="icon">👥</span> Kullanıcılar</NavLink>
           <NavLink to="/loglar"><span className="icon">🧾</span>Loglar</NavLink>
           <NavLink to="/ayarlar"><span className="icon">⚙️</span> Ayarlar</NavLink>
-
-
         </nav>
 
         <div className="sidebar-actions">
@@ -136,9 +157,30 @@ function PanelYerlesim(
       </aside>
 
       <main className="main">
-        <div className="topbar pretty">
+        {/* TOPBAR: başlık + refresh butonları */}
+        <div
+          className="topbar pretty"
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+        >
           <div className="topbar-title">{pageTitle}</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="theme-btn"
+              onClick={softRefresh}
+              title="Yenile (sayfayı yeniden yüklemeden)"
+              disabled={yenileniyor}
+            >
+              {yenileniyor ? "Yenileniyor…" : "↻ Yenile"}
+            </button>
+            <button
+              onClick={hardRefresh}
+              title="Tam yenile (sayfayı baştan yükler)"
+            >
+              ♻ Tam Yenile
+            </button>
+          </div>
         </div>
+
         <div className="content">{children}</div>
       </main>
     </div>
@@ -227,12 +269,10 @@ function UygulamaIc() {
           <Route path="*" element={<Navigate to="/stok" replace />} />
           <Route path="/stok/duzenle" element={<StokDuzenle />} />
 
-
           {/* Müşteri */}
           <Route path="/musteriler" element={<MusteriListesi />} />
           <Route path="/musteri/yeni" element={<MusteriOlustur />} />
           <Route path="/musteri/:docId" element={<MusteriDetay />} />
-
           <Route path="/musteri/:docId/duzenle" element={<MusteriDuzenle />} />
 
           {/* Sipariş */}
@@ -243,7 +283,6 @@ function UygulamaIc() {
           <Route path="/analiz" element={<Analiz />} />
           <Route path="/loglar" element={<Loglar />} />
           <Route path="/ayarlar" element={<AyarlarSayfasi />} />
-
         </Routes>
       </PanelYerlesim>
     </HashRouter>

@@ -3,6 +3,7 @@ import { veritabani } from "../../firebase";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { collection, query, where, getDocs } from "firebase/firestore";
 
+
 type Urun = {
   id: number;
   urunAdi: string;
@@ -60,8 +61,7 @@ export default function UrunDetay() {
 
   function geri() {
     // Electron/Vite içinde bazen history yok; güvenli fallback:
-    if (window.history.length > 2) navigate(-1);
-    else navigate("/stok", { replace: true });
+    navigate("/stok", { replace: true });
   }
 
   if (yuk) return <div className="card">Yükleniyor…</div>;

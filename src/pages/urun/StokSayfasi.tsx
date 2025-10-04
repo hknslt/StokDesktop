@@ -6,7 +6,7 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { veritabani, depolama } from "../../firebase";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { stokPdfIndir } from "../../pdf/stokPdf";
 
 type Urun = {
@@ -380,9 +380,9 @@ export default function StokSayfasi() {
                         PDF indir
                     </button>
 
-                    <a href="/stok/duzenle">
+                    <Link to="/stok/duzenle">
                         <button>Stok Düzenle</button>
-                    </a>
+                    </Link>
                 </div>
             </div>
 
