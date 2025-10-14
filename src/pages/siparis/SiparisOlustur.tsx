@@ -65,6 +65,8 @@ export default function SiparisOlustur() {
   const [seciliMusteriId, setSeciliMusteriId] = useState<string>("");
   const [musteriAra, setMusteriAra] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [fiyatUygulaniyor, setFiyatUygulaniyor] = useState(false);
+
 
   useEffect(() => {
     const qy = query(
@@ -167,6 +169,32 @@ export default function SiparisOlustur() {
       return 0;
     }
   }
+
+  async function fiyatlariUygula() {
+    if (!listeId || !satirlar.length) return;
+    try {
+      setFiyatUygulaniyor(true);
+
+      // satırlardaki ürün id'lerini çek
+      const uniqIds = Array.from(new Set(satirlar.map(s => Number(s.id))));
+      // her ürün için fiyatı getir
+      const idFiyatPairs = await Promise.all(
+        uniqIds.map(async (urunId) => [urunId, await fiyatGetir(urunId, listeId)] as const)
+      );
+      const fiyatMap = new Map<number, number>(idFiyatPairs);
+
+      // satırlara uygula
+      setSatirlar((arr) =>
+        arr.map((s) => ({
+          ...s,
+          birimFiyat: Number(fiyatMap.get(Number(s.id)) ?? s.birimFiyat ?? 0),
+        }))
+      );
+    } finally {
+      setFiyatUygulaniyor(false);
+    }
+  }
+
 
   const [satirlar, setSatirlar] = useState<SiparisSatiri[]>([]);
   const [urunPicker, setUrunPicker] = useState(false);
@@ -436,6 +464,17 @@ export default function SiparisOlustur() {
               </option>
             ))}
           </select>
+
+
+          <button
+            className="theme-btn"
+            onClick={fiyatlariUygula}
+            disabled={!satirlar.length || !listeId || fiyatUygulaniyor}
+            title="Mevcut satırlara seçili listedeki net fiyatları uygula"
+          >
+            {fiyatUygulaniyor ? "Uygulanıyor…" : "Fiyat listesini uygula"}
+          </button>
+
           <div style={{ marginLeft: "auto" }}>
             <button className="theme-btn" onClick={() => setUrunPicker(true)}>
               + Ürün Ekle
@@ -660,4 +699,3 @@ export default function SiparisOlustur() {
     </div>
   );
 }
-  

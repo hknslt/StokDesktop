@@ -2,9 +2,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     collection, doc, getDocs, limit, onSnapshot, orderBy, query,
-    serverTimestamp, setDoc
+    serverTimestamp, setDoc, deleteDoc
 } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { veritabani, depolama } from "../../firebase";
 import { Link, useNavigate } from "react-router-dom";
 import { stokPdfIndir } from "../../pdf/stokPdf";
@@ -21,7 +21,6 @@ type Urun = {
     createdAt?: any;
 };
 
-// 🔹 Renk doküman tipi
 type RenkDoc = { id: string; ad: string; adLower?: string | null };
 
 function parseResimYollari(val: any): string[] | undefined {
@@ -59,7 +58,7 @@ export default function StokSayfasi() {
     const [urunler, setUrunler] = useState<Urun[]>([]);
     const [ara, setAra] = useState("");
 
-    // 🔽 sıralama & stok filtresi
+    // filtre & sıralama
     const [sirala, setSirala] = useState<"az" | "za">("az");
     const [sifirStok, setSifirStok] = useState(false);
 
@@ -67,48 +66,42 @@ export default function StokSayfasi() {
     const [urunAdi, setUrunAdi] = useState("");
     const [urunKodu, setUrunKodu] = useState("");
     const [adet, setAdet] = useState<number>(0);
-    const [renk, setRenk] = useState(""); // 🔸 seçilen/yazılan renk
+    const [renk, setRenk] = useState("");
     const [aciklama, setAciklama] = useState("");
 
-    // 🔹 Firestore’dan renkler
+    // Renkler
     const [renkler, setRenkler] = useState<RenkDoc[]>([]);
 
-    // Görsel ekleme modu
+    // Görsel ekleme
     const [imgMode, setImgMode] = useState<ImageMode>("upload");
-
-    // URL modu alanları
     const [kapakUrl, setKapakUrl] = useState("");
     const [digerUrlMetni, setDigerUrlMetni] = useState("");
 
-    // Yükleme modu: tek dropzone ve çoklu dosya
     const [files, setFiles] = useState<File[]>([]);
     const [coverIndex, setCoverIndex] = useState<number>(0);
     const [dragOver, setDragOver] = useState(false);
 
-    // Yükleme / durum
+    // durum
     const [yuk, setYuk] = useState(false);
     const [durum, setDurum] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
     const aktifTasklar = useRef<ReturnType<typeof uploadBytesResumable>[]>([]);
+    const [silinenId, setSilinenId] = useState<number | null>(null); // aktif silinen ürün
 
-    // Renk açılır liste kontrolü
+    // Renk dropdown kontrolü
     const [renkAcik, setRenkAcik] = useState(false);
     const renkKutuRef = useRef<HTMLDivElement | null>(null);
 
-    // Dışarı tıklayınca kapat
     useEffect(() => {
         function kapat(e: MouseEvent) {
             if (!renkKutuRef.current) return;
-            if (!renkKutuRef.current.contains(e.target as Node)) {
-                setRenkAcik(false);
-            }
+            if (!renkKutuRef.current.contains(e.target as Node)) setRenkAcik(false);
         }
         document.addEventListener("mousedown", kapat);
         return () => document.removeEventListener("mousedown", kapat);
     }, []);
 
-
-    // 🔸 Ürünleri canlı oku
+    // Ürünler
     useEffect(() => {
         const qy = query(collection(veritabani, "urunler"), orderBy("id", "asc"));
         return onSnapshot(qy, (snap) => {
@@ -130,7 +123,7 @@ export default function StokSayfasi() {
         });
     }, []);
 
-    // 🔹 Renkleri canlı oku
+    // Renkler
     useEffect(() => {
         const qy = query(collection(veritabani, "renkler"), orderBy("adLower", "asc"));
         return onSnapshot(qy, (snap) => {
@@ -180,21 +173,17 @@ export default function StokSayfasi() {
         if (!fs || !fs.length) return;
         const arr = Array.from(fs);
         const ok = arr.filter((f) => f.type.startsWith("image/") && f.size <= 10 * 1024 * 1024);
-        if (ok.length !== arr.length) {
-            setDurum("Sadece resim ve en fazla 10MB kabul edilir.");
-        }
+        if (ok.length !== arr.length) setDurum("Sadece resim ve en fazla 10MB kabul edilir.");
         const yeni = [...files, ...ok];
         setFiles(yeni);
         if (yeni.length && coverIndex >= yeni.length) setCoverIndex(0);
     }
-
     function onDrop(e: React.DragEvent) {
         e.preventDefault();
         e.stopPropagation();
         setDragOver(false);
         handleFileInput(e.dataTransfer.files);
     }
-
     function removeFile(ix: number) {
         const yeni = files.filter((_, i) => i !== ix);
         setFiles(yeni);
@@ -308,7 +297,7 @@ export default function StokSayfasi() {
                 urunAdi: urunAdi.trim(),
                 urunKodu: urunKodu.trim(),
                 adet: Number(adet) || 0,
-                renk: renk.trim() || null, // 🔸 buraya seçilen renk
+                renk: renk.trim() || null,
                 aciklama: aciklama.trim() || null,
                 kapakResimYolu: kapakURL || null,
                 resimYollari: digerURLler.length ? digerURLler : null,
@@ -329,6 +318,47 @@ export default function StokSayfasi() {
         }
     };
 
+    // ------- ÜRÜN SİLME -------
+    async function deleteByUrl(url?: string | null) {
+        if (!url) return;
+        try {
+            // http(s) download URL versek de ref bunu kabul ediyor.
+            const r = ref(depolama, url);
+            await deleteObject(r);
+        } catch (e) {
+            // Görsel silinemezse uygulamayı bozmasın; loglayalım.
+            console.warn("Görsel silinemedi:", e);
+        }
+    }
+
+    async function urunSil(u: Urun) {
+        if (silinenId != null) return; // bir silme işlemi varken engelle
+        const onay = window.confirm(
+            `Bu ürünü silmek istediğinize emin misiniz?\n\nAd: ${u.urunAdi}\nKod: ${u.urunKodu}\n\nÜrün ve görselleri silinecek.`
+        );
+        if (!onay) return;
+
+        try {
+            setSilinenId(u.id);
+            setDurum(null);
+
+            // 1) Firestore dokümanı silmeden önce görselleri kaldır (URL'lerden)
+            await Promise.allSettled([
+                deleteByUrl(u.kapakResimYolu),
+                ...(u.resimYollari || []).map((url) => deleteByUrl(url)),
+            ]);
+
+            // 2) Ürün dokümanını sil
+            await deleteDoc(doc(veritabani, "urunler", String(u.id)));
+
+            setDurum(`'${u.urunAdi}' silindi.`);
+        } catch (e: any) {
+            setDurum(e?.message || "Ürün silinemedi.");
+        } finally {
+            setSilinenId(null);
+        }
+    }
+
     return (
         <div style={{ display: "grid", gap: 16 }}>
             {/* Başlık + Arama + Filtre/Sıralama */}
@@ -343,7 +373,6 @@ export default function StokSayfasi() {
                     style={{ maxWidth: 320 }}
                 />
 
-                {/* Stoğu olmayanlar filtresi */}
                 <label className="cek-kutu" style={{ userSelect: "none" }}>
                     <input
                         type="checkbox"
@@ -394,12 +423,8 @@ export default function StokSayfasi() {
                     <input className="input" placeholder="Ürün Adı *" value={urunAdi} onChange={(e) => setUrunAdi(e.target.value)} disabled={yuk} />
                     <input className="input" placeholder="Ürün Kodu *" value={urunKodu} onChange={(e) => setUrunKodu(e.target.value)} disabled={yuk} />
 
-                    {/* 🔹 Renk: sadece listeden seçilecek, yazılamaz */}
-                    <div
-                        ref={renkKutuRef}
-                        className="renk-select-wrap"
-                        style={{ position: "relative" }}
-                    >
+                    {/* Renk dropdown */}
+                    <div ref={renkKutuRef} className="renk-select-wrap" style={{ position: "relative" }}>
                         <button
                             type="button"
                             className="input renk-select-btn"
@@ -439,7 +464,6 @@ export default function StokSayfasi() {
                                     overflow: "auto"
                                 }}
                             >
-                                {/* İsteğe bağlı: temizle */}
                                 <div
                                     className="renk-item"
                                     role="option"
@@ -477,7 +501,6 @@ export default function StokSayfasi() {
                             </div>
                         )}
                     </div>
-
 
                     <input
                         className="input"
@@ -626,14 +649,14 @@ export default function StokSayfasi() {
                 {durum && <div style={{ marginTop: 8, opacity: .9 }}>{durum}</div>}
             </div>
 
-            {/* LİSTE — Foto | Ad | Kod | Renk | Adet */}
+            {/* LİSTE — Foto | Ad | Kod | Renk | Adet | Aksiyon */}
             <div className="card">
                 <h3 style={{ marginTop: 0 }}>Ürünler</h3>
                 <div style={{ display: "grid", gap: 8 }}>
                     <div
                         style={{
                             display: "grid",
-                            gridTemplateColumns: "90px 1.2fr 1fr 1fr 100px",
+                            gridTemplateColumns: "90px 1.2fr 1fr 1fr 100px 100px",
                             gap: 8,
                             fontSize: 13,
                             color: "var(--muted)",
@@ -644,6 +667,7 @@ export default function StokSayfasi() {
                         <div>Kod</div>
                         <div>Renk</div>
                         <div>Adet</div>
+                        <div>Aksiyon</div>
                     </div>
 
                     {filtreli.map((u) => (
@@ -652,7 +676,7 @@ export default function StokSayfasi() {
                             onClick={() => navigate(`/urun/${u.id}`)}
                             style={{
                                 display: "grid",
-                                gridTemplateColumns: "90px 1.2fr 1fr 1fr 100px",
+                                gridTemplateColumns: "90px 1.2fr 1fr 1fr 100px 100px",
                                 gap: 8,
                                 alignItems: "center",
                                 border: "1px solid var(--panel-bdr)",
@@ -676,6 +700,26 @@ export default function StokSayfasi() {
                             <div><b>{u.urunKodu}</b></div>
                             <div>{u.renk ?? "-"}</div>
                             <div><b>{u.adet}</b></div>
+
+                            {/* Aksiyonlar (satır tıklamasını engelle) */}
+                            {/* Aksiyonlar (satır tıklamasını engelle) */}
+                            <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
+                                <button className="theme-btn" onClick={() => navigate(`/urun/${u.id}`)}>Detay</button>
+                                <button
+                                    className="theme-btn"
+                                    onClick={() => urunSil(u)}
+                                    disabled={silinenId === u.id}
+                                    title="Ürünü sil"
+                                    style={{
+                                        background: "#e53935",
+                                        borderColor: "#e53935",
+                                        color: "#fff"
+                                    }}
+                                >
+                                    {silinenId === u.id ? "Siliniyor…" : "Sil"}
+                                </button>
+                            </div>
+
                         </div>
                     ))}
 
@@ -685,3 +729,5 @@ export default function StokSayfasi() {
         </div>
     );
 }
+
+

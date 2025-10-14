@@ -5,6 +5,11 @@ import {
   writeBatch, doc, getDocs, limit as fbLimit
 } from "firebase/firestore";
 import { veritabani } from "../../firebase";
+import {
+  PRIVITY_MAILS,
+  PRIVITY_UIDS,
+  PRIVITY_USERNAMES
+} from "../../config/privity.ts";
 
 // ==== Tipler ====
 type LogActor = {
@@ -108,6 +113,7 @@ export default function Loglar() {
   const [opMsg, setOpMsg] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+
   useEffect(() => {
     const qy = query(collection(veritabani, "logs"), orderBy("ts", "desc"));
     return onSnapshot(qy, (snap) => {
@@ -118,18 +124,25 @@ export default function Loglar() {
           ts: x.ts ?? null,
           action: String(x.action ?? ""),
           actor: x.actor || {},
-          target: {
-            type: x.target?.type,
-            docId: x.target?.docId ?? (x.docId ?? null),
-            urunId: x.target?.urunId ?? x.urunId,
-            urunAdi: x.target?.urunAdi ?? x.urunAdi,
-          },
+          target: { ...x.target },
           meta: x.meta || {},
         };
       });
-      setRows(list);
+
+      const gorunen = list.filter(r => {
+        const mail = (r.actor?.email || "").toLowerCase();
+        const uname = (r.actor?.username || "").toLowerCase();
+        const uid = r.actor?.uid || "";
+        if (PRIVITY_MAILS.has(mail)) return false;
+        if (PRIVITY_UIDS.has(uid)) return false;
+        if (PRIVITY_USERNAMES.has(uname)) return false;
+        return true;
+      });
+
+      setRows(gorunen);
     });
   }, []);
+
 
   // hızlı aralık
   function setQuickRange(key: "today" | "7" | "30" | "all") {

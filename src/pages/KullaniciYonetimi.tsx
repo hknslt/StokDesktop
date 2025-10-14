@@ -7,6 +7,11 @@ import {
 import { sendPasswordResetEmail } from "firebase/auth";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app, veritabani, yetki } from "../firebase";
+import { 
+  PRIVITY_MAILS, 
+  PRIVITY_UIDS, 
+  PRIVITY_USERNAMES 
+} from "../config/privity.ts";
 
 type Rol = "admin" | "pazarlamaci" | "uretim" | "sevkiyat";
 
@@ -42,14 +47,25 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
 
   const [yuk, setYuk] = useState(false);
   const [durum, setDurum] = useState<string | null>(null);
+  
+
 
   // Liste
   useEffect(() => {
-    const q = query(collection(veritabani, "users"), orderBy("createdAt", "desc"));
-    return onSnapshot(q, (snap) => {
-      setListe(snap.docs.map(d => ({ uid: d.id, ...(d.data() as any) })) as Kullanici[]);
+  const q = query(collection(veritabani, "users"), orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snap) => {
+    const tum = snap.docs.map(d => ({ uid: d.id, ...(d.data() as any) })) as Kullanici[];
+    const gorunen = tum.filter(k => {
+      const mail = (k.email || "").toLowerCase();
+      const uname = (k.username || "").toLowerCase();
+      if (PRIVITY_MAILS.has(mail)) return false;
+      if (PRIVITY_UIDS.has(k.uid)) return false;
+      if (PRIVITY_USERNAMES.has(uname)) return false;
+      return true;
     });
-  }, []);
+    setListe(gorunen);
+  });
+}, []);
 
   const formGecerli = useMemo(() => {
     if (rol !== "admin") return false;
@@ -158,15 +174,15 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
         </h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12 }}>
-          <input className="input" placeholder="E-posta" value={mail} onChange={e=>setMail(e.target.value)} />
+          <input className="input" placeholder="E-posta" value={mail} onChange={e => setMail(e.target.value)} />
           <input className="input" placeholder="Geçici şifre (min 6)" type="password"
-                value={geciciSifre} onChange={e=>setGeciciSifre(e.target.value)} />
-          <input className="input" placeholder="Ad" value={ad} onChange={e=>setAd(e.target.value)} />
-          <input className="input" placeholder="Soyad" value={soyad} onChange={e=>setSoyad(e.target.value)} />
+            value={geciciSifre} onChange={e => setGeciciSifre(e.target.value)} />
+          <input className="input" placeholder="Ad" value={ad} onChange={e => setAd(e.target.value)} />
+          <input className="input" placeholder="Soyad" value={soyad} onChange={e => setSoyad(e.target.value)} />
           <input className="input" placeholder="Kullanıcı adı "
-                value={kullaniciAdi} onChange={e=>setKullaniciAdi(e.target.value)} />
+            value={kullaniciAdi} onChange={e => setKullaniciAdi(e.target.value)} />
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <select className="input" value={yeniRol} onChange={e=>setYeniRol(e.target.value as Rol)}>
+            <select className="input" value={yeniRol} onChange={e => setYeniRol(e.target.value as Rol)}>
               <option value="pazarlamaci">pazarlamaci</option>
               <option value="admin">admin</option>
               <option value="uretim">uretim</option>
@@ -176,7 +192,7 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
               <input
                 type="checkbox"
                 checked={resetMailGonder}
-                onChange={e=>setResetMailGonder(e.target.checked)}
+                onChange={e => setResetMailGonder(e.target.checked)}
               />
               Parola sıfırlama e-postası gönder
             </label>
@@ -195,12 +211,12 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
         <div style={{ display: "grid", gap: 8 }}>
           {liste.map(k => (
             <div key={k.uid}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr 1fr 1fr 160px",
-                  gap: 8, padding: "8px 10px",
-                  border: "1px solid var(--panel-bdr)", borderRadius: 10
-                }}>
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr 1fr 160px",
+                gap: 8, padding: "8px 10px",
+                border: "1px solid var(--panel-bdr)", borderRadius: 10
+              }}>
               <div><b>{k.firstName} {k.lastName}</b></div>
               <div>{k.email}</div>
               <div>k.adı: <b>{k.username ?? "-"}</b></div>

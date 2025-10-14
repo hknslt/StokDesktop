@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { doc, getDoc, updateDoc, collection, onSnapshot, orderBy, query } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import {
+  doc, getDoc, updateDoc, collection, onSnapshot, orderBy, query,
+  arrayRemove, arrayUnion
+} from "firebase/firestore";
+import {
+  ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject
+} from "firebase/storage";
 import { veritabani, depolama } from "../../firebase";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -41,7 +46,7 @@ export default function UrunDuzenle() {
   const [aciklama, setAciklama] = useState("");
 
   const [kapakResimYolu, setKapakResimYolu] = useState<string | null>(null);
-  const [galeri, setGaleri] = useState<string[]>([]); // mevcut galeri (sil düğmesiyle azaltılabiliyor)
+  const [galeri, setGaleri] = useState<string[]>([]); // mevcut galeri
 
   // resim ekleme modu
   const [imgMode, setImgMode] = useState<ImageMode>("upload");
@@ -86,6 +91,15 @@ export default function UrunDuzenle() {
     document.addEventListener("mousedown", kapat);
     return () => document.removeEventListener("mousedown", kapat);
   }, []);
+
+  // 🔹 Dokümanı oku & state’e bas
+  async function refreshDoc() {
+    if (!id) return;
+    const snap = await getDoc(doc(veritabani, "urunler", id));
+    const x = snap.data() as any;
+    setKapakResimYolu(x?.kapakResimYolu ?? null);
+    setGaleri(Array.isArray(x?.resimYollari) ? x.resimYollari : []);
+  }
 
   useEffect(() => {
     (async () => {
@@ -153,7 +167,7 @@ export default function UrunDuzenle() {
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       try {
-        const r = ref(depolama, path);
+        const r = storageRef(depolama, path);
         const task = uploadBytesResumable(r, file);
         activeTasks.current.push(task);
 
@@ -186,9 +200,74 @@ export default function UrunDuzenle() {
     return urls;
   }
 
-  // ---- mevcut galeriden kaldır ----
-  function galeridenKaldir(index: number) {
-    setGaleri(arr => arr.filter((_, i) => i !== index));
+  // ---- Kapak yap (double-click)
+  async function kapaYap(url: string) {
+    if (!id) return;
+    try {
+      const oncekiKapak = kapakResimYolu;
+      const refDoc = doc(veritabani, "urunler", String(id));
+
+      // 1) Yeni kapağı ata + galeriden varsa çıkar
+      await updateDoc(refDoc, {
+        kapakResimYolu: url,
+        resimYollari: arrayRemove(url),
+      });
+
+      // 2) Eski kapak farklıysa galeride yoksa ekle
+      if (oncekiKapak && oncekiKapak !== url) {
+        await updateDoc(refDoc, { resimYollari: arrayUnion(oncekiKapak) });
+      }
+
+      // 3) Sunucudan tazele
+      await refreshDoc();
+      setDurum("Kapak güncellendi.");
+    } catch (e: any) {
+      setDurum(e?.message || "Kapak güncellenemedi.");
+    }
+  }
+
+  // ---- Storage + Firestore: tekil görsel sil ----
+  async function resmiSil(u: string, tip: "kapak" | "galeri") {
+    if (!id) return;
+    try {
+      setDurum(null);
+
+      // 1) Storage’dan kaldır (download URL ile)
+      const r = storageRef(depolama, u);
+      await deleteObject(r);
+
+      const refDoc = doc(veritabani, "urunler", String(id));
+
+      if (tip === "galeri") {
+        // 2a) Galeriden URL’yi çıkar
+        await updateDoc(refDoc, { resimYollari: arrayRemove(u) });
+      } else {
+        // 2b) Kapak silinirse:
+        //    - Galeride resim varsa ilkini kapak yapıp galeriden düş
+        //    - Galeri boşsa kapağı null yap
+        const snap = await getDoc(refDoc);
+        const x = snap.data() as any;
+        const mevcutGaleri: string[] = Array.isArray(x?.resimYollari) ? x.resimYollari : [];
+
+        if (mevcutGaleri.length > 0) {
+          const yeniKapak = mevcutGaleri[0];
+          await updateDoc(refDoc, {
+            kapakResimYolu: yeniKapak,
+            resimYollari: arrayRemove(yeniKapak),
+          });
+        } else {
+          await updateDoc(refDoc, { kapakResimYolu: null });
+        }
+      }
+
+      // 3) Sunucudan tazele (drift önler)
+      await refreshDoc();
+
+      setDurum("Görsel silindi.");
+    } catch (e: any) {
+      const msg = e?.code?.startsWith?.("storage/") ? storageFriendlyError(e) : (e?.message || "Silinemedi.");
+      setDurum(msg);
+    }
   }
 
   // ---- kaydet ----
@@ -199,33 +278,49 @@ export default function UrunDuzenle() {
     try {
       setYuk(true); setDurum(null);
 
+      const oldCover = kapakResimYolu; // ← eski kapağı yakala
       let cover: string | null = kapakResimYolu || null;
       let eklenecek: string[] = [];
 
       if (imgMode === "url") {
-        // URL ile: girilenler eklenir; kapak URL yazılmışsa kapak override edilir
         const others = parseUrlList(digerUrlMetni);
-        eklenecek = others;
         if (kapakUrl.trim()) cover = kapakUrl.trim();
+        // yeni kapak neyse, onu galeriden tutmamak için others’tan çıkar
+        eklenecek = others.filter(u => u !== cover);
       } else {
-        // Upload: tek dropzone; yıldızlı olan kapak
         if (files.length) {
           const up = await uploadAll(id!, files);
           const ci = Math.min(Math.max(0, coverIndex), up.length - 1);
           cover = up[ci] ?? cover;
+          // kapak olanı galeriden çıkar
           eklenecek = up.filter((_, i) => i !== ci);
         }
       }
 
-      await updateDoc(doc(veritabani, "urunler", String(id)), {
+      const refDoc = doc(veritabani, "urunler", String(id));
+
+      // 1) Metin/kod/renk/kapak alanlarını yaz (listeyi ezme!)
+      await updateDoc(refDoc, {
         urunKodu: urunKodu.trim(),
         urunAdi: urunAdi.trim(),
-        renk: renk.trim() || null, // <-- dropdown değeri (yazı yok)
+        renk: renk.trim() || null,
         adet: Number(adet) || 0,
         aciklama: aciklama.trim() || null,
-        kapakResimYolu: cover ?? null,
-        resimYollari: [...galeri, ...eklenecek],
+        kapakResimYolu: cover ?? null
       });
+
+      // 2) Kapak değiştiyse: eski kapağı galeriye EKLE
+      if (oldCover && oldCover !== cover) {
+        await updateDoc(refDoc, { resimYollari: arrayUnion(oldCover) });
+      }
+
+      // 3) Galeriye sadece yeni URL’leri EKLE (var olanlar korunur)
+      if (eklenecek.length) {
+        await updateDoc(refDoc, { resimYollari: arrayUnion(...eklenecek) });
+      }
+
+      // 4) Sunucudan tazele
+      await refreshDoc();
 
       setDurum("Güncellendi.");
       navigate(`/urun/${id}`);
@@ -239,6 +334,12 @@ export default function UrunDuzenle() {
   }
 
   if (yuk) return <div className="card">Yükleniyor…</div>;
+
+  // 🔹 Tek grid: Kapak + Galeri birlikte
+  const tumResimler: Array<{ url: string; tip: "kapak" | "galeri" }> = [
+    ...(kapakResimYolu ? [{ url: kapakResimYolu, tip: "kapak" as const }] : []),
+    ...galeri.map(u => ({ url: u, tip: "galeri" as const })),
+  ];
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -256,7 +357,7 @@ export default function UrunDuzenle() {
           <input className="input" placeholder="Ürün Kodu *" value={urunKodu} onChange={e => setUrunKodu(e.target.value)} />
           <input className="input" placeholder="Ürün Adı *" value={urunAdi} onChange={e => setUrunAdi(e.target.value)} />
 
-          {/* 🔹 Renk: sadece listeden seçilecek, yazılamaz (StokSayfasi ile aynı) */}
+          {/* 🔹 Renk: sadece listeden seçilecek, yazılamaz */}
           <div ref={renkKutuRef} className="renk-select-wrap" style={{ position: "relative" }}>
             <button
               type="button"
@@ -296,7 +397,6 @@ export default function UrunDuzenle() {
                   overflow: "auto",
                 }}
               >
-                {/* Seçimi temizle (opsiyonel) */}
                 <div
                   className="renk-item"
                   role="option"
@@ -347,39 +447,46 @@ export default function UrunDuzenle() {
 
         {/* Sağ: Görseller */}
         <div style={{ display: "grid", gap: 12 }}>
-          {/* KAPAK ÖNİZLEME */}
+          {/* 🔹 TEK GRID: Kapak + Galeri */}
           <div>
-            <div style={{ fontSize: 13, color: "var(--muted)" }}>Mevcut Kapak</div>
-            {kapakResimYolu ? (
-              <img src={kapakResimYolu} alt="" style={{ width: "100%", height: 200, objectFit: "cover", borderRadius: 10 }} />
-            ) : (
-              <div style={{ width: "100%", height: 200, borderRadius: 10, display: "grid", placeItems: "center", border: "1px dashed var(--panel-bdr)", opacity: .7 }}>
-                Kapak yok
-              </div>
-            )}
-          </div>
-
-          {/* MEVCUT GALERİ (kaldırılabilir) */}
-          <div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}>Mevcut Galeri</div>
-            {galeri.length ? (
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {galeri.map((u, i) => (
-                  <div key={i} style={{ position: "relative" }}>
-                    <img src={u} alt="" style={{ width: 96, height: 72, objectFit: "cover", borderRadius: 8 }} />
+            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}>Mevcut Görseller</div>
+            {tumResimler.length ? (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {tumResimler.map(({ url, tip }, i) => (
+                  <div
+                    key={i}
+                    style={{ position: "relative" }}
+                    onDoubleClick={() => kapaYap(url)} // çift tık = kapak yap
+                    title={tip === "kapak" ? "Kapak" : "Çift tıkla kapak yap"}
+                  >
+                    <img
+                      src={url}
+                      alt=""
+                      style={{
+                        width: 120, height: 90, objectFit: "cover", borderRadius: 8,
+                        border: tip === "kapak" ? "2px solid var(--ana)" : "1px solid var(--panel-bdr)",
+                        cursor: "pointer",
+                        userSelect: "none"
+                      }}
+                    />
+                    {tip === "kapak" && (
+                      <span style={{ position: "absolute", left: 6, top: 6, fontSize: 12, padding: "0 6px", borderRadius: 6, background: "var(--ana)", color: "#0b1020" }}>
+                        Kapak
+                      </span>
+                    )}
                     <button
                       className="theme-btn"
-                      style={{ position: "absolute", top: 2, right: 2, padding: "2px 6px", fontSize: 12 }}
-                      onClick={() => galeridenKaldir(i)}
+                      style={{ position: "absolute", top: 6, right: 6, padding: "2px 6px", fontSize: 12 }}
+                      onClick={() => resmiSil(url, tip)}
                       type="button"
-                      title="Galeriden kaldır"
+                      title="Resmi sil (Storage + Firestore)"
                     >
                       Sil
                     </button>
                   </div>
                 ))}
               </div>
-            ) : <div style={{ opacity: .7 }}>Galeri yok</div>}
+            ) : <div style={{ opacity: .7 }}>Görsel yok</div>}
           </div>
 
           {/* MOD SEÇİMİ */}
