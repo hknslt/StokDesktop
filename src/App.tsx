@@ -34,6 +34,7 @@ import StokDuzenle from "./pages/urun/StokDuzenle";
 import Analiz from "./pages/analiz/Analiz";
 import Loglar from "./pages/logs/Loglar";
 import AyarlarSayfasi from "./pages/ayarlar/AyarlarSayfasi";
+import SiparisDuzenle from "./pages/siparis/SiparisDuzenle";
 
 type Rol = "admin" | "pazarlamaci" | "uretim" | "sevkiyat";
 type UserDoc = { email: string; firstName?: string; lastName?: string; role?: Rol };
@@ -68,7 +69,7 @@ function usePageTitle() {
   if (pathname.startsWith("/fiyat-listeleri")) return "Fiyat Listeleri";
   if (pathname.startsWith("/musteri/yeni")) return "Yeni Müşteri";
   if (pathname.startsWith("/musteriler")) return "Müşteriler";
-  if(pathname.startsWith("/musteri/")) return "Müşteri Detay"
+  if (pathname.startsWith("/musteri/")) return "Müşteri Detay"
   if (pathname.startsWith("/urun/") && pathname.endsWith("/duzenle")) return "Ürün Düzenle";
   if (pathname.startsWith("/urun/")) return "Ürün Detayı";
   if (pathname.startsWith("/kullanicilar")) return "Kullanıcılar";
@@ -278,6 +279,7 @@ function UygulamaIc() {
           {/* Sipariş */}
           <Route path="/siparisler" element={<SiparisListesi />} />
           <Route path="/siparis/yeni" element={<SiparisOlustur />} />
+          <Route path="/siparis/duzenle/:id" element={<SiparisDuzenle />} />
           <Route path="/siparis/:id" element={<SiparisDetay />} />
 
           <Route path="/analiz" element={<Analiz />} />

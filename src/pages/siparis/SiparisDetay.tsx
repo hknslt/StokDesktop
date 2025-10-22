@@ -103,10 +103,15 @@ export default function SiparisDetay() {
           <button className="theme-btn" onClick={() => nav(-1)}>
             Geri
           </button>
+          {(r.durum === "beklemede" || r.durum === "uretimde") && (
+            <Link to={`/siparis/duzenle/${id}`} className="theme-btn">
+              Düzenle
+            </Link>
+          )}
           <button onClick={pdfOlustur} disabled={pdfBusy}>
             {pdfBusy ? "PDF…" : "PDF"}
           </button>
-          {/* Onayla sadece BEKLEMEDE */}
+
           {r.durum === "beklemede" && (
             <button disabled={busy} onClick={onayla}>
               {busy ? "…" : "Onayla"}
