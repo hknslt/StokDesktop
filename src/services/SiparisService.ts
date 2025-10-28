@@ -168,3 +168,4 @@ export async function reddetVeIade(docId: string): Promise<boolean> {
 
   return iadeYapildi;
 }
+

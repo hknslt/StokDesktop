@@ -15,6 +15,11 @@
     --yesil: #16a34a;
     --kirmizi: #e11d48;
 
+    /* ✅ YENİ EKLENEN DURUM RENKLERİ */
+    --renk-beklemede: #f59e0b;
+    --renk-uretimde: #6366f1;
+    --renk-sevkiyat: #3b82f6;
+
     --input-bg: #ffffff;
     --input-bdr: rgba(0, 0, 0, 0.2);
     --input-txt: #0f1115;
@@ -36,6 +41,11 @@
     --ana-2: #8bd5ff;
     --yesil: #22c55e;
     --kirmizi: #ff6b6b;
+
+    /* ✅ YENİ EKLENEN DURUM RENKLERİ */
+    --renk-beklemede: #facc15;
+    --renk-uretimde: #818cf8;
+    --renk-sevkiyat: #60a5fa;
 
     --input-bg: #0b0d12;
     --input-bdr: #2a2f3a;
@@ -482,4 +492,83 @@ select option {
 .renk-menu::-webkit-scrollbar-thumb {
     background: var(--panel-bdr);
     border-radius: 8px;
+}
+
+/* -------------------------------------------------------------------------- */
+/* ✅ YENİ EKLENEN KISIM: Filtre Butonları (Chips)           */
+/* -------------------------------------------------------------------------- */
+
+/* Filtre Chip'lerinin temel stili (seçili değilken) */
+.filter-chip {
+    padding: 7px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--panel-bdr);
+    background-color: transparent;
+    color: var(--txt);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+/* Her bir duruma özel hover efekti (seçili değilken) */
+.filter-chip.status-beklemede:hover:not(.aktif) {
+    background-color: color-mix(in oklab, var(--renk-beklemede) 15%, transparent);
+}
+
+.filter-chip.status-uretimde:hover:not(.aktif) {
+    background-color: color-mix(in oklab, var(--renk-uretimde) 15%, transparent);
+}
+
+.filter-chip.status-sevkiyat:hover:not(.aktif) {
+    background-color: color-mix(in oklab, var(--renk-sevkiyat) 15%, transparent);
+}
+
+.filter-chip.status-tamamlandi:hover:not(.aktif) {
+    background-color: color-mix(in oklab, var(--yesil) 15%, transparent);
+}
+
+.filter-chip.status-reddedildi:hover:not(.aktif) {
+    background-color: color-mix(in oklab, var(--kirmizi) 15%, transparent);
+}
+
+
+/* ---- SEÇİLİ (AKTİF) DURUMLAR ---- */
+
+/* Genel aktif stil: Kenarlık ve metin rengini ayarlar */
+.filter-chip.aktif {
+    border-width: 2px;
+    padding: 6px 15px;
+    color: white;
+    font-weight: 600;
+    box-shadow: 0 3px 10px -3px rgba(0, 0, 0, 0.2);
+}
+
+/* Her bir durum için özel AKTİF arkaplan rengi */
+.filter-chip.status-beklemede.aktif {
+    background-color: var(--renk-beklemede);
+    border-color: var(--renk-beklemede);
+    color: #0f1115;
+    /* Sarı arkaplanda siyah metin daha okunaklı */
+}
+
+.filter-chip.status-uretimde.aktif {
+    background-color: var(--renk-uretimde);
+    border-color: var(--renk-uretimde);
+}
+
+.filter-chip.status-sevkiyat.aktif {
+    background-color: var(--renk-sevkiyat);
+    border-color: var(--renk-sevkiyat);
+}
+
+.filter-chip.status-tamamlandi.aktif {
+    background-color: var(--yesil);
+    border-color: var(--yesil);
+}
+
+.filter-chip.status-reddedildi.aktif {
+    background-color: var(--kirmizi);
+    border-color: var(--kirmizi);
 }
