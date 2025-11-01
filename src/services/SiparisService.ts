@@ -1,10 +1,12 @@
+// src/services/SiparisService.ts - TAM GÜNCEL HALİ
 import {
   addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query,
-  serverTimestamp, updateDoc, where, Timestamp, getDoc
+  serverTimestamp, updateDoc, where, Timestamp, getDoc, getDocs, deleteField
 } from "firebase/firestore";
 import { veritabani } from "../firebase";
 import { decrementStocksIfSufficient, getStocksByNumericIds, iadeStok } from "./UrunService";
 
+// ... (SiparisDurumu, SiparisSatiri vb. tipleriniz aynı kalıyor) ...
 export type SiparisDurumu =
   | "beklemede"
   | "uretimde"
@@ -13,11 +15,11 @@ export type SiparisDurumu =
   | "reddedildi";
 
 export type SiparisSatiri = {
-  id: string;        // ürün id (string), Firestore’da böyle tutuluyor
+  id: string;
   urunAdi: string;
   renk?: string;
   adet: number;
-  birimFiyat: number; // net
+  birimFiyat: number;
 };
 
 export type SiparisMusteri = {
@@ -32,31 +34,37 @@ export type SiparisModel = {
   musteri: SiparisMusteri;
   urunler: SiparisSatiri[];
   durum: SiparisDurumu;
-  tarih: Timestamp;         // oluşturma
-  islemeTarihi?: Timestamp; // sevk/tamam vs
+  tarih: Timestamp;
+  islemeTarihi?: Timestamp;
   aciklama?: string;
-
   netTutar: number;
   kdvOrani: number;
   kdvTutar: number;
   brutTutar: number;
 };
 
-export function hepsiDinle(cb: (rows: (SiparisModel & {docId:string})[]) => void) {
+export type StokDurumTipi = 'YETERLI' | 'KRITIK' | 'YETERSİZ';
+export type StokDetay = {
+  durum: StokDurumTipi;
+  mevcutStok: number;
+};
+
+// ... (hepsiDinle ve diğer mevcut fonksiyonlarınız aynı kalıyor) ...
+export function hepsiDinle(cb: (rows: (SiparisModel & { docId: string })[]) => void) {
   const qy = query(collection(veritabani, "siparisler"), orderBy("tarih", "desc"));
   return onSnapshot(qy, (snap) => {
-    cb(snap.docs.map(d => ({...(d.data() as any), docId: d.id})));
+    cb(snap.docs.map(d => ({ ...(d.data() as any), docId: d.id })));
   });
 }
 
-export function dinleDurumaGore(durum: SiparisDurumu, cb: (rows: (SiparisModel & {docId:string})[]) => void) {
+export function dinleDurumaGore(durum: SiparisDurumu, cb: (rows: (SiparisModel & { docId: string })[]) => void) {
   const qy = query(
     collection(veritabani, "siparisler"),
     where("durum", "==", durum),
     orderBy("tarih", "desc"),
   );
   return onSnapshot(qy, (snap) => {
-    cb(snap.docs.map(d => ({...(d.data() as any), docId: d.id})));
+    cb(snap.docs.map(d => ({ ...(d.data() as any), docId: d.id })));
   });
 }
 
@@ -88,8 +96,7 @@ export async function guncelleDurum(
   } as any);
 }
 
-/** ✅ Beklemede/Üretimde → stok yeterse SEVKIYAT'a geçir ve stok düş; değilse ÜRETİMDE bırak */
-export async function sevkiyataGecir(s: SiparisModel & {docId:string}) {
+export async function sevkiyataGecir(s: SiparisModel & { docId: string }) {
   const istek: Record<number, number> = {};
   for (const r of s.urunler) {
     const nid = Number(r.id);
@@ -100,18 +107,16 @@ export async function sevkiyataGecir(s: SiparisModel & {docId:string}) {
   if (ok) {
     await guncelleDurum(s.docId, "sevkiyat", { islemeTarihiniAyarla: true });
   } else {
-    await guncelleDurum(s.docId, "uretimde"); // ekstra güvenlik: stok yetersizse üretimde kalsın/geçsin
+    await guncelleDurum(s.docId, "uretimde");
   }
   return ok;
 }
 
-/** ✅ ÜRETİM ONAYI (stoklara dokunmaz) */
 export async function uretimeOnayla(docId: string) {
   await guncelleDurum(docId, "uretimde", { islemeTarihiniAyarla: true });
 }
 
-/** bilgilendirme amaçlı (liste görünümünde) */
-export async function stokYeterlilikHaritasi(rows: (SiparisModel & {docId:string})[]) {
+export async function stokYeterlilikHaritasi(rows: (SiparisModel & { docId: string })[]) {
   const ids = new Set<number>();
   rows.forEach(r => r.urunler?.forEach(u => {
     const id = Number(u.id); if (Number.isFinite(id)) ids.add(id);
@@ -134,7 +139,6 @@ export async function stokYeterlilikHaritasi(rows: (SiparisModel & {docId:string
   return sonuc;
 }
 
-/** ✅ Sevkiyattaki siparişi reddet → stok iadesi + durum=reddedildi */
 export async function reddetVeIade(docId: string): Promise<boolean> {
   const ref = doc(veritabani, "siparisler", docId);
   const snap = await getDoc(ref);
@@ -169,3 +173,86 @@ export async function reddetVeIade(docId: string): Promise<boolean> {
   return iadeYapildi;
 }
 
+// ✅ YENİ: Sevkiyattaki siparişi stoğa iade edip bekleme durumuna alan fonksiyon
+export async function sevkiyattanGeriCek(docId: string): Promise<boolean> {
+  const ref = doc(veritabani, "siparisler", docId);
+  const snap = await getDoc(ref);
+  if (!snap.exists() || snap.data().durum !== 'sevkiyat') {
+    console.error("Sipariş bulunamadı veya sevkiyatta değil.");
+    return false;
+  }
+
+  const satirlar: SiparisSatiri[] = snap.data().urunler || [];
+
+  // 1. Stokları iade et
+  if (satirlar.length > 0) {
+    const harita: Record<number, number> = {};
+    for (const satir of satirlar) {
+      const idNum = Number(satir.id);
+      const adet = Number(satir.adet || 0);
+      if (Number.isFinite(idNum) && adet > 0) {
+        harita[idNum] = (harita[idNum] ?? 0) + adet;
+      }
+    }
+    if (Object.keys(harita).length) {
+      await iadeStok(harita);
+    }
+  }
+
+  // 2. Sipariş durumunu güncelle ve işlem tarihini temizle
+  await updateDoc(ref, {
+    durum: "beklemede",
+    islemeTarihi: deleteField(), // İşlem tarihini siliyoruz
+  });
+
+  return true;
+}
+
+
+export async function urunStokDurumHaritasi(
+  mevcutSiparisUrunleri: SiparisSatiri[]
+): Promise<Map<string, StokDetay>> {
+  const sonuc = new Map<string, StokDetay>();
+  if (!mevcutSiparisUrunleri?.length) return sonuc;
+  // ... (Bu fonksiyonun geri kalanı aynı)
+  const q = query(collection(veritabani, "siparisler"), where("durum", "in", ["beklemede", "uretimde"]));
+  const tumAktifSiparislerSnap = await getDocs(q);
+
+  const toplamTalep = new Map<number, number>();
+  const ilgiliTumUrunIdleri = new Set<number>();
+
+  tumAktifSiparislerSnap.docs.forEach(doc => {
+    const urunler = doc.data().urunler as SiparisSatiri[] || [];
+    urunler.forEach(u => {
+      const idNum = Number(u.id);
+      if (!Number.isFinite(idNum)) return;
+      ilgiliTumUrunIdleri.add(idNum);
+      toplamTalep.set(idNum, (toplamTalep.get(idNum) ?? 0) + Number(u.adet || 0));
+    });
+  });
+
+  if (ilgiliTumUrunIdleri.size === 0) {
+    mevcutSiparisUrunleri.forEach(u => ilgiliTumUrunIdleri.add(Number(u.id)));
+  }
+
+  const mevcutStoklar = await getStocksByNumericIds([...ilgiliTumUrunIdleri]);
+
+  mevcutSiparisUrunleri.forEach(u => {
+    const idNum = Number(u.id);
+    if (!Number.isFinite(idNum)) return;
+
+    const buSiparistekiAdet = Number(u.adet || 0);
+    const mevcutStok = mevcutStoklar.get(idNum) ?? 0;
+    const tumSiparislerdekiTalep = toplamTalep.get(idNum) || buSiparistekiAdet;
+
+    if (mevcutStok < buSiparistekiAdet) {
+      sonuc.set(u.id, { durum: 'YETERSİZ', mevcutStok });
+    } else if (mevcutStok < tumSiparislerdekiTalep) {
+      sonuc.set(u.id, { durum: 'KRITIK', mevcutStok });
+    } else {
+      sonuc.set(u.id, { durum: 'YETERLI', mevcutStok });
+    }
+  });
+
+  return sonuc;
+}

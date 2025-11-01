@@ -8,6 +8,9 @@ import {
   sevkiyataGecir,
   SiparisDurumu,
   reddetVeIade,
+  urunStokDurumHaritasi,
+  StokDetay,
+  sevkiyattanGeriCek,
 } from "../../services/SiparisService";
 import { siparisPdfYazdirWeb } from "../../pdf/siparisPdf";
 
@@ -26,16 +29,33 @@ export default function SiparisDetay() {
   const [r, setR] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
-
+  const [stokDetaylari, setStokDetaylari] = useState<Map<string, StokDetay>>(new Map());
   useEffect(() => {
     (async () => {
       if (!id) return;
+      setYuk(true);
       const snap = await getDoc(doc(veritabani, "siparisler", id));
-      setR(snap.exists() ? { ...(snap.data() as any), docId: id } : null);
+
+      if (snap.exists()) {
+        const data = snap.data() as any;
+        const siparis = { ...data, docId: id };
+        setR(siparis);
+
+        // ✅ GÜNCELLEME: Sadece beklemede ve üretimde ise stok kontrolü yap
+        if ((siparis.durum === "beklemede" || siparis.durum === "uretimde") && data.urunler?.length) {
+          // ✅ GÜNCELLEME: Yeni ve akıllı servis fonksiyonunu çağırıyoruz
+          const stokMap = await urunStokDurumHaritasi(siparis.urunler);
+          setStokDetaylari(stokMap);
+        }
+      } else {
+        setR(null);
+      }
+
       setYuk(false);
     })();
   }, [id]);
 
+  // ... (onayla, reddet, tamamla, pdfOlustur fonksiyonları aynı kalıyor)
   async function onayla() {
     if (!r) return;
     setBusy(true);
@@ -87,6 +107,30 @@ export default function SiparisDetay() {
       setPdfBusy(false);
     }
   }
+  async function handleGeriCek() {
+    if (!r) return;
+    const onay = window.confirm(
+      "Bu siparişi sevkiyattan geri çekmek istediğinizden emin misiniz?\n\nÜrünler stoğa geri eklenecek ve sipariş 'Beklemede' durumuna alınacaktır."
+    );
+    if (!onay) return;
+
+    setBusy(true);
+    try {
+      const ok = await sevkiyattanGeriCek(r.docId);
+      if (ok) {
+        alert("Sipariş başarıyla geri çekildi ve stoklar iade edildi.");
+        // Sayfanın güncel verilerle yeniden yüklenmesini sağlıyoruz
+        window.location.reload();
+      } else {
+        alert("İşlem sırasında bir hata oluştu.");
+      }
+    } catch (error) {
+      console.error("Geri çekme hatası:", error);
+      alert("İşlem sırasında bir hata oluştu.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (yuk) return <div className="card">Yükleniyor…</div>;
   if (!r) return <div className="card">Bulunamadı.</div>;
@@ -95,8 +139,11 @@ export default function SiparisDetay() {
     kdv = Number(r.kdvTutar || 0),
     brut = Number(r.brutTutar || 0);
 
+  const isSiparisAktif = r.durum === "beklemede" || r.durum === "uretimde";
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {/* ... (Başlık ve butonlar bölümü aynı) ... */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h2 style={{ margin: 0 }}>Sipariş Detayı</h2>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -117,13 +164,22 @@ export default function SiparisDetay() {
               {busy ? "…" : "Onayla"}
             </button>
           )}
-          {/* Reddet: tamamlandi / reddedildi HARİÇ */}
           {r.durum !== "reddedildi" && r.durum !== "tamamlandi" && (
             <button className="theme-btn" disabled={busy} onClick={reddet}>
               Reddet
             </button>
           )}
-          {/* Tamamla sadece SEVKIYAT */}
+
+          {r.durum === "sevkiyat" && (
+            <button
+              className="theme-btn"
+              style={{ backgroundColor: 'var(--sari, #ffc107)', color: 'black' }}
+              disabled={busy}
+              onClick={handleGeriCek}
+            >
+              {busy ? "…" : "Sevkiyattan Çek"}
+            </button>
+          )}
           {r.durum === "sevkiyat" && (
             <button disabled={busy} onClick={tamamla}>
               Tamamla
@@ -133,6 +189,7 @@ export default function SiparisDetay() {
       </div>
 
       <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* ... (Müşteri bilgileri bölümü aynı) ... */}
         <div>
           <div style={{ marginBottom: 8 }}>
             <span className={`tag status-${r.durum}`}>{ETIKET[r.durum as SiparisDurumu] ?? r.durum}</span>
@@ -160,6 +217,7 @@ export default function SiparisDetay() {
         </div>
 
         <div style={{ display: "grid", gap: 8, alignContent: "start" }}>
+          {/* ... (Ürün başlıkları bölümü aynı) ... */}
           <div
             style={{
               display: "grid",
@@ -170,31 +228,59 @@ export default function SiparisDetay() {
             }}
           >
             <div>Ürün</div>
-            <div>Adet</div>
+            <div>{isSiparisAktif ? 'Adet / Stok' : 'Adet'}</div>
             <div> Birim Fiyat(Net)</div>
             <div>Toplam Fiyat(Net)</div>
           </div>
-          {(r.urunler || []).map((s: any, i: number) => (
-            <div
-              key={i}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 90px 110px 110px",
-                gap: 8,
-                border: "1px solid var(--panel-bdr)",
-                borderRadius: 10,
-                padding: "6px 8px",
-              }}
-            >
-              <div>
-                <b>{s.urunAdi}</b>
-                {s.renk ? <span style={{ opacity: 0.8 }}> • {s.renk}</span> : null}
+
+          {(r.urunler || []).map((s: any, i: number) => {
+            // ✅ GÜNCELLEME: Renklendirmenin ne zaman aktif olacağını belirleyen bir değişken ekliyoruz
+            const renklendirmeAktif = r.durum === "beklemede" || r.durum === "uretimde";
+            const detay = stokDetaylari.get(s.id);
+
+            const satirStili: React.CSSProperties = {
+              display: "grid",
+              gridTemplateColumns: "1fr 120px 110px 110px", // ✅ Sütun genişliğini güncelledik
+              gap: 8,
+              border: "1px solid",
+              borderRadius: 10,
+              padding: "6px 8px",
+              transition: "border-color 0.3s, background-color 0.3s",
+              backgroundColor: !renklendirmeAktif ? "transparent"
+                : detay?.durum === 'YETERLI' ? "var(--yesil-bg, #e8f5e9)"
+                  : detay?.durum === 'KRITIK' ? "var(--sari-bg, #fffde7)"
+                    : detay?.durum === 'YETERSİZ' ? "var(--kirmizi-bg, #ffebee)"
+                      : "transparent",
+              borderColor: !renklendirmeAktif ? "var(--panel-bdr, #ddd)"
+                : detay?.durum === 'YETERLI' ? "var(--yesil, #4caf50)"
+                  : detay?.durum === 'KRITIK' ? "var(--sari, #ffc107)"
+                    : detay?.durum === 'YETERSİZ' ? "var(--kirmizi, #f44336)"
+                      : "var(--panel-bdr, #ddd)",
+              borderWidth: renklendirmeAktif && detay ? 2 : 1,
+            };
+
+            return (
+              <div key={i} style={satirStili}>
+                <div><b>{s.urunAdi}</b>{s.renk ? <span style={{ opacity: 0.8 }}> • {s.renk}</span> : null}</div>
+                {/* ✅ DEĞİŞİKLİK: Adet ve Stok bilgisini birlikte gösteriyoruz */}
+                <div>
+                  {isSiparisAktif ? (
+                    <>
+                      {s.adet} /{" "}
+                      <b style={{ color: detay?.durum === 'YETERSİZ' ? 'var(--kirmizi)' : 'inherit' }}>
+                        {detay?.mevcutStok ?? "…"}
+                      </b>
+                    </>
+                  ) : (
+                    s.adet // Aktif değilse sadece adedi göster
+                  )}
+                </div>
+                <div>{Number(s.birimFiyat || 0).toLocaleString()}</div>
+                <div>{(Number(s.adet || 0) * Number(s.birimFiyat || 0)).toLocaleString()}</div>
               </div>
-              <div>{s.adet}</div>
-              <div>{Number(s.birimFiyat || 0).toLocaleString()}</div>
-              <div>{(Number(s.adet || 0) * Number(s.birimFiyat || 0)).toLocaleString()}</div>
-            </div>
-          ))}
+            );
+          })}
+
           <div style={{ justifySelf: "end", display: "grid", gap: 6 }}>
             <div>
               Net: <b>{net.toLocaleString()}</b>
@@ -216,4 +302,4 @@ export default function SiparisDetay() {
       </div>
     </div>
   );
-}
+} 

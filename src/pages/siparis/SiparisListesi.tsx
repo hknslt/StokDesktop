@@ -284,13 +284,12 @@ export default function SiparisListesi() {
                     <button disabled={busy === r.docId} onClick={() => tamamla(r)}>Tamamla</button>
                   )}
 
-                  {/* ✅ YENİ: Sadece 'tamamlandi' veya 'reddedildi' durumundaysa Sil butonunu göster */}
                   {(r.durum === "tamamlandi" || r.durum === "reddedildi") && (
                     <button
                       className="theme-btn"
                       disabled={busy === r.docId}
                       onClick={() => silOnayi(r)}
-                      style={{ background: "var(--kirmizi)", color: "white" }} // Silme butonu farklı renkte olsun
+                      style={{ background: "var(--kirmizi)", color: "white" }} 
                       title="Siparişi kalıcı olarak sil"
                     >
                       {busy === r.docId ? "…" : "Sil"}
