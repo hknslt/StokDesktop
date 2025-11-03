@@ -9,7 +9,6 @@ export async function adminCreateEmailUser(email: string, password: string) {
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // returnSecureToken:false => idToken vermesin; bize sadece uid (localId) lazım
       body: JSON.stringify({ email, password, returnSecureToken: false }),
     }
   );
@@ -17,7 +16,7 @@ export async function adminCreateEmailUser(email: string, password: string) {
   const data = await res.json();
   if (!res.ok) {
     const msg = data?.error?.message || "signUp failed";
-    // Örn. EMAIL_EXISTS
+
     throw new Error(msg);
   }
   return { uid: data.localId as string };

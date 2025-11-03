@@ -10,6 +10,7 @@ type Urun = {
   urunKodu: string;
   adet: number;
   renk?: string;
+  grup?: string;
   aciklama?: string;
   kapakResimYolu?: string | null;
   resimYollari?: string[];
@@ -49,6 +50,7 @@ export default function UrunDetay() {
           urunKodu: String(x.urunKodu ?? ""),
           adet: Number(x.adet ?? 0),
           renk: x.renk ?? undefined,
+          grup: x.grup ?? undefined,
           aciklama: x.aciklama ?? undefined,
           kapakResimYolu: x.kapakResimYolu ?? undefined,
           resimYollari: Array.isArray(x.resimYollari) ? x.resimYollari : undefined,
@@ -255,6 +257,7 @@ export default function UrunDetay() {
         <div style={{ display: "grid", gap: 12 }}>
           <Satir baslik="Kod" deger={veri.urunKodu} />
           <Satir baslik="Ad" deger={veri.urunAdi} />
+          <Satir baslik="Grup" deger={veri.grup || "-"} />
           <Satir baslik="Renk" deger={veri.renk || "-"} />
           <Satir baslik="Adet" deger={String(veri.adet)} />
           <div>

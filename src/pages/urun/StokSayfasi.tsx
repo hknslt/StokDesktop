@@ -15,6 +15,7 @@ type Urun = {
     urunKodu: string;
     adet: number;
     renk?: string;
+    grup?: string;
     aciklama?: string;
     kapakResimYolu?: string | null;
     resimYollari?: string[];
@@ -22,6 +23,7 @@ type Urun = {
 };
 
 type RenkDoc = { id: string; ad: string; adLower?: string | null };
+type GrupDoc = { id: string; ad: string; adLower?: string | null };
 
 function parseResimYollari(val: any): string[] | undefined {
     if (!val) return undefined;
@@ -67,10 +69,12 @@ export default function StokSayfasi() {
     const [urunKodu, setUrunKodu] = useState("");
     const [adet, setAdet] = useState<number>(0);
     const [renk, setRenk] = useState("");
+    const [grup, setGrup] = useState("");
     const [aciklama, setAciklama] = useState("");
 
     // Renkler
     const [renkler, setRenkler] = useState<RenkDoc[]>([]);
+    const [gruplar, setGruplar] = useState<GrupDoc[]>([]);
 
     // Görsel ekleme
     const [imgMode, setImgMode] = useState<ImageMode>("upload");
@@ -86,16 +90,19 @@ export default function StokSayfasi() {
     const [durum, setDurum] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
     const aktifTasklar = useRef<ReturnType<typeof uploadBytesResumable>[]>([]);
-    const [silinenId, setSilinenId] = useState<number | null>(null); // aktif silinen ürün
+    const [silinenId, setSilinenId] = useState<number | null>(null);
 
-    // Renk dropdown kontrolü
+    // dropdown kontrolü
     const [renkAcik, setRenkAcik] = useState(false);
     const renkKutuRef = useRef<HTMLDivElement | null>(null);
+    const [grupAcik, setGrupAcik] = useState(false);
+    const grupKutuRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         function kapat(e: MouseEvent) {
             if (!renkKutuRef.current) return;
             if (!renkKutuRef.current.contains(e.target as Node)) setRenkAcik(false);
+            if (grupKutuRef.current && !grupKutuRef.current.contains(e.target as Node)) setGrupAcik(false);
         }
         document.addEventListener("mousedown", kapat);
         return () => document.removeEventListener("mousedown", kapat);
@@ -113,6 +120,7 @@ export default function StokSayfasi() {
                     urunKodu: String(x.urunKodu ?? ""),
                     adet: Number(x.adet ?? 0),
                     renk: x.renk ?? undefined,
+                    grup: x.grup ?? undefined,
                     aciklama: x.aciklama ?? undefined,
                     kapakResimYolu: x.kapakResimYolu ?? undefined,
                     resimYollari: parseResimYollari(x.resimYollari),
@@ -135,6 +143,19 @@ export default function StokSayfasi() {
                 })
                 .filter((r) => r.ad);
             setRenkler(list);
+        });
+    }, []);
+    useEffect(() => {
+        const qy = query(collection(veritabani, "gruplar"), orderBy("adLower", "asc"));
+        return onSnapshot(qy, (snap) => {
+            const list: GrupDoc[] = snap.docs
+                .map((d) => {
+                    const x = d.data() as any;
+                    const ad = String(x.ad ?? "").trim();
+                    return { id: d.id, ad, adLower: x.adLower ?? ad.toLowerCase() };
+                })
+                .filter((r) => r.ad);
+            setGruplar(list);
         });
     }, []);
 
@@ -298,6 +319,7 @@ export default function StokSayfasi() {
                 urunKodu: urunKodu.trim(),
                 adet: Number(adet) || 0,
                 renk: renk.trim() || null,
+                grup: grup.trim() || null,
                 aciklama: aciklama.trim() || null,
                 kapakResimYolu: kapakURL || null,
                 resimYollari: digerURLler.length ? digerURLler : null,
@@ -423,6 +445,26 @@ export default function StokSayfasi() {
                     <input className="input" placeholder="Ürün Adı *" value={urunAdi} onChange={(e) => setUrunAdi(e.target.value)} disabled={yuk} />
                     <input className="input" placeholder="Ürün Kodu *" value={urunKodu} onChange={(e) => setUrunKodu(e.target.value)} disabled={yuk} />
 
+                    <div ref={grupKutuRef} className="renk-select-wrap" style={{ position: "relative" }}>
+                        <button type="button" className="input renk-select-btn" onClick={() => setGrupAcik((a) => !a)} disabled={yuk} title="Grup seç" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, cursor: "pointer" }}>
+                            <span style={{ opacity: grup ? 1 : 0.7 }}>
+                                {grup ? grup : "Grup seçin"}
+                            </span>
+                            <span aria-hidden>▾</span>
+                        </button>
+                        {grupAcik && (
+                            <div className="renk-menu" role="listbox" style={{ position: "absolute", zIndex: 20, top: "calc(100% + 6px)", left: 0, right: 0, background: "var(--input-bg)", color: "var(--txt)", border: "1px solid var(--panel-bdr)", borderRadius: 10, boxShadow: "0 6px 28px rgba(0,0,0,.18)", maxHeight: 240, overflow: "auto" }}>
+                                <div className="renk-item" role="option" onClick={() => { setGrup(""); setGrupAcik(false); }} style={{ padding: "10px 12px", cursor: "pointer", fontSize: 14, borderBottom: "1px solid var(--panel-bdr)", opacity: .9 }}>
+                                    (Seçimi temizle)
+                                </div>
+                                {gruplar.map((g) => (
+                                    <div key={g.id} className="renk-item" role="option" aria-selected={grup === g.ad} onClick={() => { setGrup(g.ad); setGrupAcik(false); }} style={{ padding: "10px 12px", cursor: "pointer", fontSize: 14, background: grup === g.ad ? "color-mix(in oklab, var(--ana) 14%, var(--input-bg))" : "transparent" }} onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in oklab, var(--ana) 10%, var(--input-bg))")} onMouseLeave={(e) => (e.currentTarget.style.background = grup === g.ad ? "color-mix(in oklab, var(--ana) 14%, var(--input-bg))" : "transparent")}>
+                                        {g.ad}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     {/* Renk dropdown */}
                     <div ref={renkKutuRef} className="renk-select-wrap" style={{ position: "relative" }}>
                         <button
@@ -656,7 +698,7 @@ export default function StokSayfasi() {
                     <div
                         style={{
                             display: "grid",
-                            gridTemplateColumns: "90px 1.2fr 1fr 1fr 100px 100px",
+                            gridTemplateColumns: "90px 1.2fr 1fr 1fr 1fr 100px 100px",
                             gap: 8,
                             fontSize: 13,
                             color: "var(--muted)",
@@ -665,6 +707,7 @@ export default function StokSayfasi() {
                         <div>Foto</div>
                         <div>Ad</div>
                         <div>Kod</div>
+                        <div>Grup</div>
                         <div>Renk</div>
                         <div>Adet</div>
                         <div>Aksiyon</div>
@@ -676,7 +719,7 @@ export default function StokSayfasi() {
                             onClick={() => navigate(`/urun/${u.id}`)}
                             style={{
                                 display: "grid",
-                                gridTemplateColumns: "90px 1.2fr 1fr 1fr 100px 100px",
+                                gridTemplateColumns: "90px 1.2fr 1fr 1fr 1fr 100px 100px",
                                 gap: 8,
                                 alignItems: "center",
                                 border: "1px solid var(--panel-bdr)",
@@ -698,6 +741,7 @@ export default function StokSayfasi() {
                             </div>
                             <div>{u.urunAdi}</div>
                             <div><b>{u.urunKodu}</b></div>
+                            <div>{u.grup ?? "-"}</div>
                             <div>{u.renk ?? "-"}</div>
                             <div><b>{u.adet}</b></div>
 

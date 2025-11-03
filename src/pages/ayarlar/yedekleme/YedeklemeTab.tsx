@@ -7,13 +7,22 @@ import { flatten, toCSV, safeName } from "./utils/table-helpers";
 import { downloadBlob } from "./utils/download";
 
 /* ----------------------- tipler ve sabitler ----------------------- */
-type ExportSet = "renkler" | "urunler" | "musteriler" | "siparisler" | "ozel";
+type ExportSet = "renkler" | "gruplar" | "grupStok" | "urunler" | "musteriler" | "siparisler" | "ozel";
+
+
+type Urun = {
+  urunAdi: string;
+  adet: number;
+  grup?: string;
+};
 
 const PRESETS: { key: ExportSet; path?: string; label: string }[] = [
   { key: "renkler", path: "renkler", label: "🎨 Renkler" },
+  { key: "gruplar", path: "gruplar", label: "📁 Gruplar" },
   { key: "urunler", path: "urunler", label: "📦 Ürünler" },
   { key: "musteriler", path: "musteriler", label: "👥 Müşteriler" },
   { key: "siparisler", path: "siparisler", label: "🧾 Siparişler" },
+  { key: "grupStok", label: "📊 Stok Dağılımı (Grup)" },
   { key: "ozel", label: "📁 Özel Yol" },
 ];
 
@@ -34,9 +43,10 @@ export default function YedeklemeTab() {
   const [tumSatirlar, setTumSatirlar] = useState<any[]>([]);
   const [alanlar, setAlanlar] = useState<string[]>([]);
   const [seciliAlanlar, setSeciliAlanlar] = useState<Set<string>>(new Set());
-  
+
 
   const etkinYol = useMemo(() => {
+    if (secim === 'grupStok') return 'urunler';
     const preset = PRESETS.find((p) => p.key === secim);
     return preset?.path || ozelYol.trim();
   }, [secim, ozelYol]);
@@ -62,22 +72,49 @@ export default function YedeklemeTab() {
       setDurum("Lütfen bir koleksiyon/yol seçin.");
       return;
     }
+
     try {
       setYuk("load");
       setDurum(null);
+
+      if (secim === 'grupStok') {
+        const snap = await getDocs(collection(veritabani, "urunler"));
+        const urunListesi = snap.docs.map(d => d.data() as Urun);
+
+        const grupMap = new Map<string, { grupAdi: string; stokAdedi: number }>();
+        for (const u of urunListesi) {
+          const grupAdi = (u.grup || "").trim() || "(Grupsuz)";
+          const adet = Number(u.adet || 0);
+          const prev = grupMap.get(grupAdi) || { grupAdi, stokAdedi: 0 };
+          grupMap.set(grupAdi, { grupAdi, stokAdedi: prev.stokAdedi + adet });
+        }
+
+        const rows = Array.from(grupMap.values()).sort((a, b) => b.stokAdedi - a.stokAdedi);
+        setTumSatirlar(rows);
+
+        const keys = ["grupAdi", "stokAdedi"];
+        setAlanlar(keys);
+        setSeciliAlanlar(new Set(keys));
+        setDurum(`Stok Dağılımı için ${rows.length} grup hesaplandı.`);
+        return; // Özel işlem bittiği için fonksiyondan çık
+      }
+
+      // ESKİ MANTIK: Diğer tüm seçimler için doğrudan koleksiyonu yükle
       const snap = await getDocs(collection(veritabani, etkinYol));
-      const rows = snap.docs.map((d) => ({ ...d.data() })); // <-- id YOK
+      const rows = snap.docs.map((d) => ({ ...d.data(), docId: d.id })); // docId eklendi
       setTumSatirlar(rows);
 
       const keys = new Set<string>();
+      keys.add("docId"); // docId her zaman başta olsun
       for (const r of rows) {
         const flat = flatten(r);
         Object.keys(flat).forEach((k) => keys.add(k));
       }
       const list = Array.from(keys);
       setAlanlar(list);
-      setSeciliAlanlar(new Set(list)); // varsayılan: hepsi
+      setSeciliAlanlar(new Set(list));
       setDurum(`${etkinYol} için ${rows.length} kayıt yüklendi.`);
+
     } catch (e: any) {
       setDurum(e?.message || "Veriler alınamadı.");
     } finally {
@@ -97,9 +134,6 @@ export default function YedeklemeTab() {
     }
     return out;
   }
-
-  /* ----------------------- EXPORTERS ----------------------- */
-  // JSON: okunaklı + tipler etiketli + id YOK
   function exportJSON(manualFileName?: string) {
     if (!tumSatirlar.length) {
       setDurum("Önce verileri yükleyin.");

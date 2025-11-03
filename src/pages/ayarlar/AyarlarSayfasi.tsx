@@ -3,8 +3,9 @@ import ProfilTab from "./ProfilTab";
 import SifreTab from "./SifreTab";
 import RenklerTab from "./RenklerTab";
 import YedeklemeTab from "./yedekleme/YedeklemeTab";
+import GruplarTab from "./GruplarTab";
 
-export type Sekme = "profil" | "sifre" | "renkler" | "yedekleme";
+export type Sekme = "profil" | "sifre" | "renkler" |"gruplar"| "yedekleme";
 
 export default function AyarlarSayfasi() {
   const [sekme, setSekme] = useState<Sekme>("profil");
@@ -44,6 +45,14 @@ export default function AyarlarSayfasi() {
         <button
           type="button"
           className="theme-btn"
+          onClick={() => setSekme("gruplar")}
+          style={{ borderColor: sekme === "gruplar" ? "var(--ana)" : "var(--panel-bdr)" }}
+        >
+          📁 Gruplar
+        </button>
+        <button
+          type="button"
+          className="theme-btn"
           onClick={() => setSekme("yedekleme")}
           style={{ borderColor: sekme === "yedekleme" ? "var(--ana)" : "var(--panel-bdr)" }}
         >
@@ -54,7 +63,8 @@ export default function AyarlarSayfasi() {
       {sekme === "profil" && <ProfilTab />}
       {sekme === "sifre" && <SifreTab />}
       {sekme === "renkler" && <RenklerTab />}
+      {sekme === "gruplar" && <GruplarTab />}
       {sekme === "yedekleme" && <YedeklemeTab />}
-    </div>
+    </div >
   );
 }
