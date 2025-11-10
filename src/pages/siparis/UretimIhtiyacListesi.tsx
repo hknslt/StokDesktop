@@ -1,0 +1,307 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { veritabani } from "../../firebase";
+
+/* ---------- TİPLER ---------- */
+type UrunSatiri = { urunAdi?: string; adet?: number; renk?: string;[key: string]: any };
+type SiparisRow = {
+    docId: string;
+    durum: string;
+    urunler?: UrunSatiri[];
+    musteri?: { firmaAdi?: string; yetkili?: string };
+    [key: string]: any;
+};
+
+type UrunStok = {
+    id: number;
+    urunAdi: string;
+    renk?: string;
+    adet: number;
+};
+
+type SiparisDetayi = {
+    musteriAdi: string;
+    adet: number;
+    siparisId: string;
+};
+
+type IhtiyacSatiri = {
+    key: string;
+    urunAdi: string;
+    renk: string;
+    toplamIstenen: number;
+    mevcutStok: number;
+    netIhtiyac: number;
+    siparisler: SiparisDetayi[];
+};
+
+//Sıralama anahtarı tipi
+type SortKey = "netIhtiyacDesc" | "netIhtiyacAsc" | "urunAdiAsc" | "urunAdiDesc" | "istenenDesc";
+
+const fmtNum = (n: number) => Number(n || 0).toLocaleString("tr-TR");
+
+const PALETTE = {
+    red: "#ff5370",
+    green: "#c3e88d",
+    muted: "var(--muted, #a6adbb)",
+};
+
+export default function UretimIhtiyacListesi() {
+    const [siparisler, setSiparisler] = useState<SiparisRow[]>([]);
+    const [urunStoklari, setUrunStoklari] = useState<UrunStok[]>([]);
+    const [yukleniyor, setYukleniyor] = useState(true);
+    const [acikSatirKey, setAcikSatirKey] = useState<string | null>(null);
+
+    const [siparislerYuklendi, setSiparislerYuklendi] = useState(false);
+    const [urunlerYuklendi, setUrunlerYuklendi] = useState(false);
+
+    // Arama ve sıralama state'leri
+    const [ara, setAra] = useState("");
+    const [sirala, setSirala] = useState<SortKey>("netIhtiyacDesc"); // Varsayılan sıralama
+
+    // Siparişleri ve Stokları canlı dinle
+    useEffect(() => {
+        const qSiparis = query(collection(veritabani, "siparisler"), where("durum", "==", "uretimde"));
+        const unsubSiparis = onSnapshot(qSiparis, (snap) => {
+            const rows = snap.docs.map(d => ({ ...d.data(), docId: d.id } as SiparisRow));
+            setSiparisler(rows);
+            setSiparislerYuklendi(true);
+        });
+
+        const qUrun = query(collection(veritabani, "urunler"));
+        const unsubUrun = onSnapshot(qUrun, (snap) => {
+            const list = snap.docs.map(d => d.data() as UrunStok);
+            setUrunStoklari(list);
+            setUrunlerYuklendi(true);
+        });
+
+        return () => {
+            unsubSiparis();
+            unsubUrun();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (siparislerYuklendi && urunlerYuklendi) {
+            setYukleniyor(false);
+        }
+    }, [siparislerYuklendi, urunlerYuklendi]);
+
+    const hesaplananListe = useMemo(() => {
+        const stokMap = new Map<string, number>();
+        for (const urun of urunStoklari) {
+            const adi = (urun.urunAdi || "").trim().toLowerCase();
+            const renk = (urun.renk || "").trim().toLowerCase();
+            const key = `${adi}::${renk}`;
+            stokMap.set(key, (stokMap.get(key) || 0) + Number(urun.adet || 0));
+        }
+
+        const ihtiyacMap = new Map<string, IhtiyacSatiri>();
+        for (const siparis of siparisler) {
+            const musteriAdi = siparis.musteri?.firmaAdi || siparis.musteri?.yetkili || "(Bilinmeyen Müşteri)";
+            for (const urun of (siparis.urunler || [])) {
+                const adi = (urun.urunAdi || "").trim();
+                const renk = (urun.renk || "").trim();
+                const key = `${adi.toLowerCase()}::${renk.toLowerCase()}`;
+                const adet = Number(urun.adet || 0);
+
+                if (adet <= 0) continue;
+
+                let satir = ihtiyacMap.get(key);
+                if (!satir) {
+                    satir = {
+                        key: key,
+                        urunAdi: adi || "(Bilinmeyen Ürün)",
+                        renk: renk || "—",
+                        toplamIstenen: 0,
+                        mevcutStok: stokMap.get(key) || 0,
+                        netIhtiyac: 0,
+                        siparisler: [],
+                    };
+                    ihtiyacMap.set(key, satir);
+                }
+
+                satir.toplamIstenen += adet;
+                satir.siparisler.push({
+                    musteriAdi: musteriAdi,
+                    adet: adet,
+                    siparisId: siparis.docId,
+                });
+            }
+        }
+
+        const liste = Array.from(ihtiyacMap.values());
+        for (const item of liste) {
+            item.netIhtiyac = item.toplamIstenen - item.mevcutStok;
+            item.siparisler.sort((a, b) => b.adet - a.adet);
+        }
+
+        return liste;
+    }, [siparisler, urunStoklari]);
+
+    //Filtreleme ve Sıralama
+    const filtreliVeSiraliListe = useMemo(() => {
+        let list = [...hesaplananListe]; 
+        const q = ara.trim().toLowerCase();
+
+        // 1. Filtrele (Arama)
+        if (q) {
+            list = list.filter(item =>
+                item.urunAdi.toLowerCase().includes(q) ||
+                item.renk.toLowerCase().includes(q)
+            );
+        }
+
+        // 2. Sırala
+        list.sort((a, b) => {
+            switch (sirala) {
+                case "netIhtiyacAsc":
+                    return a.netIhtiyac - b.netIhtiyac;
+                case "urunAdiAsc":
+                    return a.urunAdi.localeCompare(b.urunAdi, 'tr');
+                case "urunAdiDesc":
+                    return b.urunAdi.localeCompare(a.urunAdi, 'tr');
+                case "istenenDesc":
+                    return b.toplamIstenen - a.toplamIstenen;
+                case "netIhtiyacDesc": // Varsayılan
+                default:
+                    return b.netIhtiyac - a.netIhtiyac;
+            }
+        });
+
+        return list;
+    }, [hesaplananListe, ara, sirala]); 
+
+    if (yukleniyor) {
+        return <div className="card">Üretim ihtiyaç listesi hesaplanıyor...</div>;
+    }
+
+    return (
+        <div style={{ display: "grid", gap: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h2 style={{ margin: 0 }}>Üretim İhtiyaç Listesi</h2>
+                <Link to="/siparisler">
+                    <button className="theme-btn">← Geri</button>
+                </Link>
+            </div>
+            <div className="card" style={{ padding: "10px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <input
+                    type="text"
+                    placeholder="Ürün adı veya renge göre ara..."
+                    className="input"
+                    value={ara}
+                    onChange={(e) => setAra(e.target.value)}
+                    style={{ flex: 1, minWidth: "240px" }}
+                />
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Sırala:</span>
+                    <select
+                        className="input"
+                        value={sirala}
+                        onChange={(e) => setSirala(e.target.value as SortKey)}
+                    >
+                        <option value="netIhtiyacDesc">Net İhtiyaç (En Acil)</option>
+                        <option value="netIhtiyacAsc">Net İhtiyaç (Acil Değil)</option>
+                        <option value="istenenDesc">Toplam İstenen (Çoktan Aza)</option>
+                        <option value="urunAdiAsc">Ürün Adı (A-Z)</option>
+                        <option value="urunAdiDesc">Ürün Adı (Z-A)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div className="card">
+                <div style={{ marginBottom: 12, fontSize: 14, opacity: 0.9 }}>
+                    "Üretimde" durumundaki siparişler için gereken ürünler, anlık stok durumu ve net ihtiyaç listesi:
+                </div>
+
+                <div style={{
+                    display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 10,
+                    fontSize: 13, color: "var(--muted)", marginBottom: 8, padding: "0 10px",
+                }}>
+                    <div>Ürün Adı</div>
+                    <div>Renk</div>
+                    <div style={{ justifySelf: "end" }}>Toplam İstenen</div>
+                    <div style={{ justifySelf: "end" }}>Mevcut Stok</div>
+                    <div style={{ justifySelf: "end" }}>Net İhtiyaç</div>
+                </div>
+
+                <div style={{ display: "grid", gap: 6 }}>
+                    {filtreliVeSiraliListe.length > 0 ? (
+                        filtreliVeSiraliListe.map((item) => {
+                            const netIhtiyacRengi = item.netIhtiyac > 0 ? PALETTE.red : PALETTE.green;
+                            const isOpen = acikSatirKey === item.key;
+
+                            return (
+                                <React.Fragment key={item.key}>
+                                    <div
+                                        className="row hoverable"
+                                        onClick={() => setAcikSatirKey(isOpen ? null : item.key)}
+                                        style={{
+                                            display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 10,
+                                            alignItems: "center", border: "1px solid var(--panel-bdr)",
+                                            borderRadius: 10, padding: "10px", cursor: "pointer",
+                                            background: isOpen ? "var(--panel-hover)" : "transparent"
+                                        }}
+                                    >
+                                        <div><b>{item.urunAdi}</b></div>
+                                        <div>{item.renk}</div>
+                                        <div style={{ justifySelf: "end", fontSize: 16, fontWeight: 700 }}>
+                                            {fmtNum(item.toplamIstenen)}
+                                        </div>
+                                        <div style={{ justifySelf: "end", fontSize: 16, fontWeight: 700 }}>
+                                            {fmtNum(item.mevcutStok)}
+                                        </div>
+                                        <div style={{ justifySelf: "end", fontSize: 16, fontWeight: 700, color: netIhtiyacRengi }}>
+                                            {item.netIhtiyac > 0 ? `-${fmtNum(item.netIhtiyac)}` : `+${fmtNum(Math.abs(item.netIhtiyac))}`}
+                                        </div>
+                                    </div>
+
+                                    {isOpen && (
+                                        <div style={{
+                                            padding: "8px 16px 16px 48px",
+                                            background: "var(--panel-hover)",
+                                            borderRadius: "0 0 10px 10px",
+                                            marginTop: "-8px",
+                                            border: "1px solid var(--panel-bdr)",
+                                            borderTop: "none"
+                                        }}>
+                                            <div style={{
+                                                display: "grid", gridTemplateColumns: "1fr auto", gap: 8,
+                                                fontSize: 12, color: PALETTE.muted, marginBottom: 6,
+                                                borderBottom: "1px solid var(--panel-bdr)", paddingBottom: 4
+                                            }}>
+                                                <div>Müşteri</div>
+                                                <div style={{ justifySelf: "end" }}>İstenen Adet</div>
+                                            </div>
+                                            <div style={{ display: "grid", gap: 4 }}>
+                                                {item.siparisler.map((sip, index) => (
+                                                    <Link
+                                                        key={index}
+                                                        to={`/siparis/${sip.siparisId}`}
+                                                        className="hoverable"
+                                                        style={{
+                                                            display: "grid", gridTemplateColumns: "1fr auto", gap: 8,
+                                                            padding: "4px", borderRadius: 4, textDecoration: 'none', color: 'inherit'
+                                                        }}
+                                                    >
+                                                        <div>{sip.musteriAdi}</div>
+                                                        <div style={{ justifySelf: "end", fontWeight: 600 }}>{fmtNum(sip.adet)}</div>
+                                                    </Link>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </React.Fragment>
+                            );
+                        })
+                    ) : (
+                        <div style={{ padding: "10px" }}>
+                            {hesaplananListe.length === 0 ? "Üretimde olan sipariş bulunamadı." : "Arama kriterlerine uyan ürün bulunamadı."}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}

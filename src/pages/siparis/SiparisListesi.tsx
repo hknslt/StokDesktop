@@ -172,7 +172,13 @@ export default function SiparisListesi() {
         <div style={{ fontSize: 13, opacity: .8 }}>
           {liste.length.toLocaleString()} kayıt • Brüt: <b>{toplamBrut.toLocaleString()}</b>
         </div>
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <Link to="/siparis/uretim-ihtiyac">
+            <button className="theme-btn"
+            style={{ background: "var(--yesil)", color: "white" }}>
+              Üretim İhtiyaç Listesi
+            </button>
+          </Link>
           <Link to="/siparis/yeni"><button>+ Yeni Sipariş</button></Link>
         </div>
       </div>
@@ -289,7 +295,7 @@ export default function SiparisListesi() {
                       className="theme-btn"
                       disabled={busy === r.docId}
                       onClick={() => silOnayi(r)}
-                      style={{ background: "var(--kirmizi)", color: "white" }} 
+                      style={{ background: "var(--kirmizi)", color: "white" }}
                       title="Siparişi kalıcı olarak sil"
                     >
                       {busy === r.docId ? "…" : "Sil"}

@@ -206,6 +206,7 @@ export default function MusteriListesi() {
                 </Link>
                 <button
                   className="theme-btn"
+                  style={{ background: "var(--kirmizi)", color: "white" }}
                   onClick={() => sil(r.docId)}
                   disabled={busyId === r.docId}
                 >
