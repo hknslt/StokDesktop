@@ -31,7 +31,6 @@ type Grup = "gun" | "hafta" | "ay" | "yil";
 type AktifListe = "satanUrunler" | "stokGrup" | "siparisGrup";
 
 
-/* ---- yardımcılar ---- */
 const fmtNum = (n: number) => Number(n || 0).toLocaleString("tr-TR");
 const fmtTL = (n: number) =>
     new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 })

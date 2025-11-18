@@ -1,5 +1,3 @@
-// Spark planda çalışır: Admin, başka bir kullanıcının e-posta/şifresiyle
-// hesabı oluşturur. Mevcut oturumu değiştirmez.
 export async function adminCreateEmailUser(email: string, password: string) {
   const key = import.meta.env.VITE_FIREBASE_API_KEY;
   if (!key) throw new Error("API key yok (.env VITE_FIREBASE_API_KEY).");

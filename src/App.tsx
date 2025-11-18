@@ -36,6 +36,7 @@ import Loglar from "./pages/logs/Loglar";
 import AyarlarSayfasi from "./pages/ayarlar/AyarlarSayfasi";
 import SiparisDuzenle from "./pages/siparis/SiparisDuzenle";
 import UretimIhtiyacListesi from "./pages/siparis/UretimIhtiyacListesi";
+import KismiSevkiyat from "./pages/siparis/KismiSevkiyat";
 
 type Rol = "admin" | "pazarlamaci" | "uretim" | "sevkiyat";
 type UserDoc = { email: string; firstName?: string; lastName?: string; role?: Rol };
@@ -287,6 +288,7 @@ function UygulamaIc() {
           <Route path="/loglar" element={<Loglar />} />
           <Route path="/ayarlar" element={<AyarlarSayfasi />} />
           <Route path="/siparis/uretim-ihtiyac" element={<UretimIhtiyacListesi />} />
+          <Route path="/siparis/kismi-sevkiyat/:id" element={<KismiSevkiyat />} />
         </Routes>
       </PanelYerlesim>
     </HashRouter>

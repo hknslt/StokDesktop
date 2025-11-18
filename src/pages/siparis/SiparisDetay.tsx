@@ -1,11 +1,11 @@
-// src/pages/siparis/SiparisDetay.tsx
+// src/sayfalar/siparis/SiparisDetay.tsx
 import { useEffect, useState } from "react";
 import { doc, getDoc } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   guncelleDurum,
-  sevkiyataGecir,
+  // sevkiyataGecir, // GÜNCELLENDİ: Silindi
   SiparisDurumu,
   reddetVeIade,
   urunStokDurumHaritasi,
@@ -30,20 +30,21 @@ export default function SiparisDetay() {
   const [busy, setBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [stokDetaylari, setStokDetaylari] = useState<Map<string, StokDetay>>(new Map());
+
   useEffect(() => {
     (async () => {
       if (!id) return;
       setYuk(true);
-      const snap = await getDoc(doc(veritabani, "siparisler", id));
+      // GÜNCELLENDİ: id'nin undefined olamayacağını belirtmek için 'id!' kullanıldı
+      const snap = await getDoc(doc(veritabani, "siparisler", id!));
 
       if (snap.exists()) {
         const data = snap.data() as any;
-        const siparis = { ...data, docId: id };
+        // GÜNCELLENDİ: 'id!' kullanıldı
+        const siparis = { ...data, docId: id! };
         setR(siparis);
 
-        // ✅ GÜNCELLEME: Sadece beklemede ve üretimde ise stok kontrolü yap
         if ((siparis.durum === "beklemede" || siparis.durum === "uretimde") && data.urunler?.length) {
-          // ✅ GÜNCELLEME: Yeni ve akıllı servis fonksiyonunu çağırıyoruz
           const stokMap = await urunStokDurumHaritasi(siparis.urunler);
           setStokDetaylari(stokMap);
         }
@@ -55,19 +56,10 @@ export default function SiparisDetay() {
     })();
   }, [id]);
 
-  // ... (onayla, reddet, tamamla, pdfOlustur fonksiyonları aynı kalıyor)
-  async function onayla() {
-    if (!r) return;
-    setBusy(true);
-    try {
-      const ok = await sevkiyataGecir(r);
-      alert(ok ? "Onaylandı • Sevkiyata alındı." : "Stok yetersiz • Üretime yönlendirildi.");
-      nav("/siparisler");
-    } finally {
-      setBusy(false);
-    }
-  }
+  // GÜNCELLENDİ: onayla() fonksiyonu artık kullanılmadığı için silindi.
+  // async function onayla() { ... }
 
+  // ... (reddet, tamamla, pdfOlustur, handleGeriCek fonksiyonları aynı kalıyor)
   async function reddet() {
     if (!r) return;
     setBusy(true);
@@ -119,7 +111,6 @@ export default function SiparisDetay() {
       const ok = await sevkiyattanGeriCek(r.docId);
       if (ok) {
         alert("Sipariş başarıyla geri çekildi ve stoklar iade edildi.");
-        // Sayfanın güncel verilerle yeniden yüklenmesini sağlıyoruz
         window.location.reload();
       } else {
         alert("İşlem sırasında bir hata oluştu.");
@@ -143,7 +134,7 @@ export default function SiparisDetay() {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* ... (Başlık ve butonlar bölümü aynı) ... */}
+      {/* GÜNCELLENDİ: Başlık ve Butonlar Alanı */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h2 style={{ margin: 0 }}>Sipariş Detayı</h2>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -159,11 +150,18 @@ export default function SiparisDetay() {
             {pdfBusy ? "PDF…" : "PDF"}
           </button>
 
-          {r.durum === "beklemede" && (
-            <button disabled={busy} onClick={onayla}>
-              {busy ? "…" : "Onayla"}
-            </button>
+          {(r.durum === "beklemede" || r.durum === "uretimde") && (
+            <Link to={`/siparis/kismi-sevkiyat/${id}`}>
+              <button
+                disabled={busy}
+                style={{ background: "var(--yesil)", color: "white" }}
+                title="Siparişi onayla, stokları kontrol et ve sevkiyat yap"
+              >
+                Sevkiyat Onayı
+              </button>
+            </Link>
           )}
+
           {r.durum !== "reddedildi" && r.durum !== "tamamlandi" && (
             <button className="theme-btn" disabled={busy} onClick={reddet}>
               Reddet
@@ -188,8 +186,8 @@ export default function SiparisDetay() {
         </div>
       </div>
 
+      {/* ... (Sayfanın geri kalanı (Müşteri bilgileri, Ürün listesi) aynı) ... */}
       <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        {/* ... (Müşteri bilgileri bölümü aynı) ... */}
         <div>
           <div style={{ marginBottom: 8 }}>
             <span className={`tag status-${r.durum}`}>{ETIKET[r.durum as SiparisDurumu] ?? r.durum}</span>
@@ -217,11 +215,10 @@ export default function SiparisDetay() {
         </div>
 
         <div style={{ display: "grid", gap: 8, alignContent: "start" }}>
-          {/* ... (Ürün başlıkları bölümü aynı) ... */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 90px 110px 110px",
+              gridTemplateColumns: "1fr 120px 110px 110px", // Sütun genişliği güncellendi (SiparisDetay'da zaten 120px idi)
               gap: 8,
               color: "var(--muted)",
               fontSize: 13,
@@ -234,13 +231,12 @@ export default function SiparisDetay() {
           </div>
 
           {(r.urunler || []).map((s: any, i: number) => {
-            // ✅ GÜNCELLEME: Renklendirmenin ne zaman aktif olacağını belirleyen bir değişken ekliyoruz
             const renklendirmeAktif = r.durum === "beklemede" || r.durum === "uretimde";
             const detay = stokDetaylari.get(s.id);
 
             const satirStili: React.CSSProperties = {
               display: "grid",
-              gridTemplateColumns: "1fr 120px 110px 110px", // ✅ Sütun genişliğini güncelledik
+              gridTemplateColumns: "1fr 120px 110px 110px", // Sütun genişliği güncellendi
               gap: 8,
               border: "1px solid",
               borderRadius: 10,
@@ -262,7 +258,6 @@ export default function SiparisDetay() {
             return (
               <div key={i} style={satirStili}>
                 <div><b>{s.urunAdi}</b>{s.renk ? <span style={{ opacity: 0.8 }}> • {s.renk}</span> : null}</div>
-                {/* ✅ DEĞİŞİKLİK: Adet ve Stok bilgisini birlikte gösteriyoruz */}
                 <div>
                   {isSiparisAktif ? (
                     <>
@@ -272,7 +267,7 @@ export default function SiparisDetay() {
                       </b>
                     </>
                   ) : (
-                    s.adet // Aktif değilse sadece adedi göster
+                    s.adet
                   )}
                 </div>
                 <div>{Number(s.birimFiyat || 0).toLocaleString()}</div>
@@ -302,4 +297,4 @@ export default function SiparisDetay() {
       </div>
     </div>
   );
-} 
+}

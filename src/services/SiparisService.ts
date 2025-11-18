@@ -1,7 +1,7 @@
 // src/services/SiparisService.ts - TAM GÜNCEL HALİ
 import {
   addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query,
-  serverTimestamp, updateDoc, where, Timestamp, getDoc, getDocs, deleteField
+  serverTimestamp, updateDoc, where, Timestamp, getDoc, getDocs, deleteField, runTransaction, limit
 } from "firebase/firestore";
 import { veritabani } from "../firebase";
 import { decrementStocksIfSufficient, getStocksByNumericIds, iadeStok } from "./UrunService";
@@ -35,6 +35,7 @@ export type SiparisModel = {
   urunler: SiparisSatiri[];
   durum: SiparisDurumu;
   tarih: Timestamp;
+  siparisId?: number;
   islemeTarihi?: Timestamp;
   aciklama?: string;
   netTutar: number;
@@ -68,9 +69,19 @@ export function dinleDurumaGore(durum: SiparisDurumu, cb: (rows: (SiparisModel &
   });
 }
 
-export async function ekleSiparis(model: Omit<SiparisModel, "tarih"> & { tarih?: Timestamp }) {
+async function sonrakiSiparisId(): Promise<number> {
+  const qy = query(collection(veritabani, "siparisler"), orderBy("siparisId", "desc"), limit(1));
+  const snap = await getDocs(qy);
+  if (snap.empty) return 1001; // İlk sipariş numarası
+  const lastId = Number(snap.docs[0].data().siparisId ?? 0);
+  return (isFinite(lastId) ? lastId : 0) + 1;
+}
+
+export async function ekleSiparis(model: Omit<SiparisModel, "tarih" | "siparisId"> & { tarih?: Timestamp }) {
+  const yeniId = await sonrakiSiparisId(); // Okunabilir ID al
   await addDoc(collection(veritabani, "siparisler"), {
     ...model,
+    siparisId: yeniId, // Okunabilir ID'yi ekle
     tarih: model.tarih ?? serverTimestamp(),
   });
 }
@@ -96,20 +107,113 @@ export async function guncelleDurum(
   } as any);
 }
 
-export async function sevkiyataGecir(s: SiparisModel & { docId: string }) {
-  const istek: Record<number, number> = {};
-  for (const r of s.urunler) {
-    const nid = Number(r.id);
-    if (!Number.isFinite(nid)) continue;
-    istek[nid] = (istek[nid] ?? 0) + Number(r.adet || 0);
+type SevkSatiri = SiparisSatiri & {
+  mevcutStok: number;
+  sevkAdedi: number; 
+};
+
+
+function tutarlariHesapla(urunListesi: SiparisSatiri[], kdvOrani: number) {
+  const netTutar = urunListesi.reduce(
+    (t, s) => t + Number(s.adet || 0) * Number(s.birimFiyat || 0), 0
+  );
+  const kdvTutar = Math.round(netTutar * (kdvOrani || 0)) / 100;
+  const brutTutar = netTutar + kdvTutar;
+  return { netTutar, kdvTutar, brutTutar };
+}
+
+export async function siparisBolVeSevkEt(
+  orijinalSiparis: SiparisModel & { docId: string },
+  sevkListesi: SevkSatiri[]
+) {
+  const sevkEdilecekUrunler: SiparisSatiri[] = [];
+  const kalanUrunler: SiparisSatiri[] = [];
+  const stokDusmeIstegi: Record<number, number> = {};
+
+  // 1. Ürün listelerini sevk edilecek ve kalan olarak ayır
+  for (const satir of sevkListesi) {
+    const urunIdNum = Number(satir.id);
+    const toplamIstenen = Number(satir.adet || 0);
+    const sevkAdedi = Number(satir.sevkAdedi || 0);
+    const kalanAdet = toplamIstenen - sevkAdedi;
+
+    if (sevkAdedi > 0) {
+      sevkEdilecekUrunler.push({ ...satir, adet: sevkAdedi });
+      // Stok düşme isteğini hazırla
+      if (Number.isFinite(urunIdNum) && urunIdNum > 0) {
+        stokDusmeIstegi[urunIdNum] = (stokDusmeIstegi[urunIdNum] || 0) + sevkAdedi;
+      }
+    }
+
+    if (kalanAdet > 0) {
+      kalanUrunler.push({ ...satir, adet: kalanAdet });
+    }
   }
-  const ok = await decrementStocksIfSufficient(istek);
-  if (ok) {
-    await guncelleDurum(s.docId, "sevkiyat", { islemeTarihiniAyarla: true });
-  } else {
-    await guncelleDurum(s.docId, "uretimde");
+
+  if (sevkEdilecekUrunler.length === 0) {
+    throw new Error("Sevk edilecek ürün seçilmedi.");
   }
-  return ok;
+
+  // 2. Stokların yeterli olup olmadığını KONTROL ET
+  const stokKontroluTamam = await decrementStocksIfSufficient(stokDusmeIstegi);
+  if (!stokKontroluTamam) {
+    throw new Error("Stoklar yetersiz! Başka bir işlem stokları tüketmiş olabilir. Sayfayı yenileyip tekrar deneyin.");
+  }
+  // NOT: decrementStocksIfSufficient'i atomik işlem (transaction) içinde kullandık.
+  // Bu, stokları KONTROL EDER ve YETERLİYSE DÜŞER.
+
+  // 3. Yeni tutarları hesapla
+  const kdvOrani = orijinalSiparis.kdvOrani || 0;
+  const yeniSevkiyatTutar = tutarlariHesapla(sevkEdilecekUrunler, kdvOrani);
+  const guncelKalanTutar = tutarlariHesapla(kalanUrunler, kdvOrani);
+
+  // 4. Atomik olarak (transaction) iki siparişi oluştur/güncelle
+  try {
+    await runTransaction(veritabani, async (transaction) => {
+      const orjSiparisRef = doc(veritabani, "siparisler", orijinalSiparis.docId);
+      const yeniSiparisRef = doc(collection(veritabani, "siparisler")); // Yeni belge ref'i oluştur
+
+      const yeniSiparisId = await sonrakiSiparisId(); // Okunabilir ID al (transaction dışında da alınabilir ama burada daha güvenli)
+
+      // A. Yeni Sevkiyat Siparişini OLUŞTUR
+      transaction.set(yeniSiparisRef, {
+        ...orijinalSiparis, // Müşteri, KDV oranı vb. bilgileri kopyala
+        urunler: sevkEdilecekUrunler,
+        ...yeniSevkiyatTutar,
+        durum: "sevkiyat",
+        tarih: serverTimestamp(), // Yeni sipariş tarihi
+        islemeTarihi: serverTimestamp(),
+        siparisId: yeniSiparisId, // Yeni okunabilir ID
+        aciklama: `Sipariş bölündü.`
+      });
+
+      // B. Orijinal Siparişi GÜNCELLE
+      if (kalanUrunler.length > 0) {
+        // Siparişte kalan ürünler var
+        transaction.update(orjSiparisRef, {
+          urunler: kalanUrunler,
+          ...guncelKalanTutar,
+          durum: "uretimde", // Kalanlar üretime (veya beklemede'ye) geri döner
+          aciklama: `Sipariş bölündü.`
+        });
+      } else {
+        // Orijinal siparişte ürün kalmadı, tamamlandı sayılır
+        transaction.update(orjSiparisRef, {
+          urunler: [],
+          netTutar: 0, kdvTutar: 0, brutTutar: 0,
+          durum: "tamamlandi",
+          islemeTarihi: serverTimestamp(),
+          aciklama: `Siparişin tamamı sevkiyata aktarıldı.`
+        });
+      }
+    });
+  } catch (error) {
+    // Stok düşme işlemi başarılı oldu AMA sipariş güncelleme başarısız oldu.
+    // Bu durumda stokları MANUEL İADE ETMEMİZ GEREKİR.
+    console.error("TRANSACTION HATASI! Stoklar düşüldü ancak siparişler güncellenemedi!", error);
+    await iadeStok(stokDusmeIstegi); // Stokları geri iade et
+    throw new Error("Siparişler güncellenirken kritik bir hata oluştu. Stoklar iade edildi. Lütfen tekrar deneyin.");
+  }
 }
 
 export async function uretimeOnayla(docId: string) {
@@ -173,7 +277,6 @@ export async function reddetVeIade(docId: string): Promise<boolean> {
   return iadeYapildi;
 }
 
-// ✅ YENİ: Sevkiyattaki siparişi stoğa iade edip bekleme durumuna alan fonksiyon
 export async function sevkiyattanGeriCek(docId: string): Promise<boolean> {
   const ref = doc(veritabani, "siparisler", docId);
   const snap = await getDoc(ref);

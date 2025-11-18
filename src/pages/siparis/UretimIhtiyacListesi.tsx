@@ -1,10 +1,11 @@
+// src/sayfalar/siparis/UretimIhtiyacListesi.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 
 /* ---------- TİPLER ---------- */
-type UrunSatiri = { urunAdi?: string; adet?: number; renk?: string;[key: string]: any };
+type UrunSatiri = { id: string; urunAdi?: string; adet?: number; renk?: string;[key: string]: any }; 
 type SiparisRow = {
     docId: string;
     durum: string;
@@ -14,7 +15,7 @@ type SiparisRow = {
 };
 
 type UrunStok = {
-    id: number;
+    id: number; 
     urunAdi: string;
     renk?: string;
     adet: number;
@@ -36,7 +37,6 @@ type IhtiyacSatiri = {
     siparisler: SiparisDetayi[];
 };
 
-//Sıralama anahtarı tipi
 type SortKey = "netIhtiyacDesc" | "netIhtiyacAsc" | "urunAdiAsc" | "urunAdiDesc" | "istenenDesc";
 
 const fmtNum = (n: number) => Number(n || 0).toLocaleString("tr-TR");
@@ -56,9 +56,8 @@ export default function UretimIhtiyacListesi() {
     const [siparislerYuklendi, setSiparislerYuklendi] = useState(false);
     const [urunlerYuklendi, setUrunlerYuklendi] = useState(false);
 
-    // Arama ve sıralama state'leri
     const [ara, setAra] = useState("");
-    const [sirala, setSirala] = useState<SortKey>("netIhtiyacDesc"); // Varsayılan sıralama
+    const [sirala, setSirala] = useState<SortKey>("netIhtiyacDesc");
 
     // Siparişleri ve Stokları canlı dinle
     useEffect(() => {
@@ -88,34 +87,49 @@ export default function UretimIhtiyacListesi() {
         }
     }, [siparislerYuklendi, urunlerYuklendi]);
 
+    // GÜNCELLENDİ: Hesaplama mantığı 'urun.id' ve 'renk' bazlı çalışacak şekilde değiştirildi
     const hesaplananListe = useMemo(() => {
+        // Adım 1: Stok ve güncel ürün bilgilerini 'id::renk' anahtarıyla haritala
         const stokMap = new Map<string, number>();
+        const urunBilgiMap = new Map<string, { urunAdi: string; renk: string }>();
+
         for (const urun of urunStoklari) {
-            const adi = (urun.urunAdi || "").trim().toLowerCase();
-            const renk = (urun.renk || "").trim().toLowerCase();
-            const key = `${adi}::${renk}`;
+            const id = String(urun.id); // Siparişlerdeki ID (string) ile eşleşmesi için
+            const renkStr = (urun.renk || "").trim();
+            const key = `${id}::${renkStr.toLowerCase()}`;
+
             stokMap.set(key, (stokMap.get(key) || 0) + Number(urun.adet || 0));
+
+            // Ürün adını ve rengini (büyük/küçük harf tutarlı) sakla
+            urunBilgiMap.set(key, {
+                urunAdi: urun.urunAdi || "(İsimsiz Ürün)",
+                renk: renkStr || "—"
+            });
         }
 
+        // Adım 2: Siparişlerdeki ihtiyaçları 'id::renk' anahtarıyla topla
         const ihtiyacMap = new Map<string, IhtiyacSatiri>();
-        for (const siparis of siparisler) {
+        for (const siparis of siparisler) { // Bunlar zaten 'uretimde' olanlar
             const musteriAdi = siparis.musteri?.firmaAdi || siparis.musteri?.yetkili || "(Bilinmeyen Müşteri)";
+
             for (const urun of (siparis.urunler || [])) {
-                const adi = (urun.urunAdi || "").trim();
-                const renk = (urun.renk || "").trim();
-                const key = `${adi.toLowerCase()}::${renk.toLowerCase()}`;
+                const id = (urun.id || "").trim(); // Ürün ID'si (string)
+                const eskiAdi = (urun.urunAdi || "").trim(); // Eski (fallback) ad
+                const renkStr = (urun.renk || "").trim();
+                const renkKey = renkStr.toLowerCase();
+                const key = `${id}::${renkKey}`; // YENİ ANAHTAR
                 const adet = Number(urun.adet || 0);
 
-                if (adet <= 0) continue;
+                if (adet <= 0 || !id) continue;
 
                 let satir = ihtiyacMap.get(key);
                 if (!satir) {
                     satir = {
                         key: key,
-                        urunAdi: adi || "(Bilinmeyen Ürün)",
-                        renk: renk || "—",
+                        urunAdi: eskiAdi || "(Bilinmeyen Ürün)", // Güncel ad bulunamazsa bu kullanılacak
+                        renk: renkStr || "—",                   // Güncel renk bulunamazsa bu kullanılacak
                         toplamIstenen: 0,
-                        mevcutStok: stokMap.get(key) || 0,
+                        mevcutStok: 0,
                         netIhtiyac: 0,
                         siparisler: [],
                     };
@@ -131,21 +145,33 @@ export default function UretimIhtiyacListesi() {
             }
         }
 
+        // Adım 3: İki haritayı birleştir (Stokları ve GÜNCEL adları ekle)
         const liste = Array.from(ihtiyacMap.values());
         for (const item of liste) {
-            item.netIhtiyac = item.toplamIstenen - item.mevcutStok;
+            const key = item.key;
+            const mevcutStok = stokMap.get(key) || 0;
+            const guncelBilgi = urunBilgiMap.get(key); // Güncel adı ve rengi al
+
+            item.mevcutStok = mevcutStok;
+            item.netIhtiyac = item.toplamIstenen - mevcutStok;
+
+            // GÜNCELLEME: Ad ve Rengi 'urunler' koleksiyonundan gelen güncel bilgiyle ez.
+            if (guncelBilgi) {
+                item.urunAdi = guncelBilgi.urunAdi; // ÇÖZÜM BURADA
+                item.renk = guncelBilgi.renk;
+            }
+
             item.siparisler.sort((a, b) => b.adet - a.adet);
         }
 
         return liste;
-    }, [siparisler, urunStoklari]);
+    }, [siparisler, urunStoklari]); // Sadece ana veriler değiştiğinde çalışır
 
-    //Filtreleme ve Sıralama
+    //Filtreleme ve Sıralama (Bu blok aynı kalır, 'hesaplananListe'yi kullanır)
     const filtreliVeSiraliListe = useMemo(() => {
-        let list = [...hesaplananListe]; 
+        let list = [...hesaplananListe];
         const q = ara.trim().toLowerCase();
 
-        // 1. Filtrele (Arama)
         if (q) {
             list = list.filter(item =>
                 item.urunAdi.toLowerCase().includes(q) ||
@@ -153,7 +179,6 @@ export default function UretimIhtiyacListesi() {
             );
         }
 
-        // 2. Sırala
         list.sort((a, b) => {
             switch (sirala) {
                 case "netIhtiyacAsc":
@@ -164,14 +189,14 @@ export default function UretimIhtiyacListesi() {
                     return b.urunAdi.localeCompare(a.urunAdi, 'tr');
                 case "istenenDesc":
                     return b.toplamIstenen - a.toplamIstenen;
-                case "netIhtiyacDesc": // Varsayılan
+                case "netIhtiyacDesc":
                 default:
                     return b.netIhtiyac - a.netIhtiyac;
             }
         });
 
         return list;
-    }, [hesaplananListe, ara, sirala]); 
+    }, [hesaplananListe, ara, sirala]); // Arama veya sıralama değiştikçe çalışır
 
     if (yukleniyor) {
         return <div className="card">Üretim ihtiyaç listesi hesaplanıyor...</div>;
@@ -185,6 +210,7 @@ export default function UretimIhtiyacListesi() {
                     <button className="theme-btn">← Geri</button>
                 </Link>
             </div>
+            {/* Arama ve Sıralama (Aynı kalır) */}
             <div className="card" style={{ padding: "10px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <input
                     type="text"
@@ -215,6 +241,7 @@ export default function UretimIhtiyacListesi() {
                     "Üretimde" durumundaki siparişler için gereken ürünler, anlık stok durumu ve net ihtiyaç listesi:
                 </div>
 
+                {/* Liste Başlığı (Aynı kalır) */}
                 <div style={{
                     display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 10,
                     fontSize: 13, color: "var(--muted)", marginBottom: 8, padding: "0 10px",
@@ -226,6 +253,7 @@ export default function UretimIhtiyacListesi() {
                     <div style={{ justifySelf: "end" }}>Net İhtiyaç</div>
                 </div>
 
+                {/* Liste İçeriği (Aynı kalır, 'filtreliVeSiraliListe'yi kullanır) */}
                 <div style={{ display: "grid", gap: 6 }}>
                     {filtreliVeSiraliListe.length > 0 ? (
                         filtreliVeSiraliListe.map((item) => {

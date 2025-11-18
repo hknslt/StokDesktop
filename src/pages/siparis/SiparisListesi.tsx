@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   hepsiDinle,
   guncelleDurum,
-  sevkiyataGecir,
-  uretimeOnayla,
+  // sevkiyataGecir, // Bu fonksiyonu sildiğinizi varsayıyorum, import'u kaldırıldı.
+  uretimeOnayla, // Stokta yoksa üretime almak için bu gerekli
   SiparisDurumu,
   stokYeterlilikHaritasi,
   reddetVeIade,
-  silSiparis, // ✅ Silme servisini import et
+  silSiparis,
 } from "../../services/SiparisService";
 import { Link, useNavigate } from "react-router-dom";
 import { teklifPdfYazdirWeb } from "../../pdf/teklifPdf";
@@ -26,6 +26,12 @@ function toDateOrNull(v: any): Date | null {
   if (typeof v === "number") return new Date(v);
   return null;
 }
+
+// GÜNCELLENDİ: Para formatlayıcı eklendi
+const fmtTL = (n: number) =>
+  new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 })
+    .format(Number(n || 0));
+
 
 export default function SiparisListesi() {
   const nav = useNavigate();
@@ -88,14 +94,8 @@ export default function SiparisListesi() {
   }, [rows, seciliDurumlar, dateField, from, to, ara]);
 
   /* ---- aksiyonlar ---- */
-  async function sevkiyatOnayi(r: any) {
-    setBusy(r.docId);
-    try {
-      const ok = await sevkiyataGecir(r);
-      alert(ok ? "Sevkiyat onayı verildi. Stok düşüldü." : "Stok yetersiz. Üretime yönlendirildi.");
-    } finally { setBusy(null); }
-  }
 
+  // 'uretimOnayi' korundu (stok yetersizse üretime almak için)
   async function uretimOnayi(r: any) {
     setBusy(r.docId);
     try {
@@ -129,7 +129,6 @@ export default function SiparisListesi() {
     } finally { setBusy(null); }
   }
 
-  // ✅ YENİ: Siparişi silme fonksiyonu
   async function silOnayi(r: any) {
     const musteriAd = r?.musteri?.firmaAdi || r?.musteri?.yetkili || "-";
     const mesaj = `“${musteriAd}” müşterisine ait bu siparişi kalıcı olarak silmek istediğinizden emin misiniz?\n\nBu işlem geri alınamaz!`;
@@ -138,7 +137,7 @@ export default function SiparisListesi() {
 
     setBusy(r.docId);
     try {
-      await silSiparis(r.docId); // Servisinizdeki mevcut fonksiyonu çağırıyoruz.
+      await silSiparis(r.docId);
     } catch (error) {
       alert("Sipariş silinirken bir hata oluştu. Lütfen tekrar deneyin.");
       console.error(error);
@@ -170,12 +169,12 @@ export default function SiparisListesi() {
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <h2 style={{ margin: 0 }}>Siparişler</h2>
         <div style={{ fontSize: 13, opacity: .8 }}>
-          {liste.length.toLocaleString()} kayıt • Brüt: <b>{toplamBrut.toLocaleString()}</b>
+          {liste.length.toLocaleString()} kayıt • Brüt: <b>{fmtTL(toplamBrut)}</b>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <Link to="/siparis/uretim-ihtiyac">
             <button className="theme-btn"
-            style={{ background: "var(--yesil)", color: "white" }}>
+              style={{ background: "var(--yesil)", color: "white" }}>
               Üretim İhtiyaç Listesi
             </button>
           </Link>
@@ -223,7 +222,7 @@ export default function SiparisListesi() {
       {/* Liste */}
       <div className="card">
         <div style={{
-          display: "grid", gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 1fr", // ✅ İşlemler sütununu genişlettik
+          display: "grid", gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 1fr",
           gap: 8, fontSize: 13, color: "var(--muted)", marginBottom: 8
         }}>
           <div></div><div>Müşteri</div><div>Durum</div><div>Tarih</div><div>İşlem Tarihi</div><div>Brüt</div><div>İşlemler</div>
@@ -233,18 +232,26 @@ export default function SiparisListesi() {
           {liste.map((r: any) => {
             const stok = stokOk.get(r.docId);
             const musteriAd = r.musteri?.firmaAdi || r.musteri?.yetkili || "-";
-            const kapali = r.durum === "tamamlandi" || r.durum === "reddedildi";
+
+            // GÜNCELLENDİ: 'kapali' durumu artık 'sevkiyat'ı da içeriyor
+            const kapali = r.durum === "tamamlandi" || r.durum === "reddedildi" || r.durum === "sevkiyat";
+
             const dotColor = kapali ? "var(--muted)" : (stok === false ? "var(--kirmizi)" : "var(--yesil)");
             const dotOpacity = kapali ? 0.6 : (stok === undefined ? 0.3 : 1);
-            const dotTitle = kapali ? (r.durum === "tamamlandi" ? "Tamamlandı" : "Reddedildi")
-              : (stok === false ? "Stok yetersiz" : "Stok uygun");
+
+            // GÜNCELLENDİ: 'dotTitle' mantığı 'sevkiyat' durumunu da içerecek şekilde güncellendi
+            const dotTitle =
+              r.durum === "tamamlandi" ? "Tamamlandı" :
+                r.durum === "reddedildi" ? "Reddedildi" :
+                  r.durum === "sevkiyat" ? "Sevkiyatta" :
+                    (stok === false ? "Stok yetersiz" : (stok === true ? "Stok uygun" : "Stok kontrol ediliyor..."));
 
             return (
               <div key={r.docId}
                 className="row hoverable"
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 1fr", // ✅ İşlemler sütununu genişlettik
+                  gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 1fr",
                   gap: 8, alignItems: "center",
                   border: "1px solid var(--panel-bdr)", borderRadius: 10, padding: "8px 10px"
                 }}>
@@ -259,37 +266,49 @@ export default function SiparisListesi() {
                 </div>
                 <div>{r.tarih?.toDate?.().toLocaleDateString?.() || "-"}</div>
                 <div>{r.islemeTarihi?.toDate?.().toLocaleDateString?.() || "-"}</div>
-                <div>{Number(r.brutTutar ?? 0).toLocaleString()}</div>
+                <div>{fmtTL(Number(r.brutTutar ?? 0))}</div>
+
+                {/* Butonlar (Bu mantık zaten bir önceki adımda düzeltilmişti, aynı kalıyor) */}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <Link to={`/siparis/${r.docId}`}><button className="theme-btn">Detay</button></Link>
                   <button className="theme-btn" onClick={() => teklifPdfYazdirWeb(r)}>Teklif PDF</button>
+
                   {r.durum === "beklemede" && (
                     stok === true ? (
-                      <button disabled={busy === r.docId} onClick={() => sevkiyatOnayi(r)}>
-                        {busy === r.docId ? "…" : "Sevkiyat Onayı"}
-                      </button>
+                      <Link to={`/siparis/kismi-sevkiyat/${r.docId}`}>
+                        <button
+                          disabled={busy === r.docId}
+                          style={{ background: "var(--yesil)", color: "white" }}
+                          title="Siparişi onayla, stokları kontrol et ve kısmi sevkiyat yap"
+                        >
+                          Sevkiyat Onayı
+                        </button>
+                      </Link>
                     ) : (
                       <button disabled={busy === r.docId} onClick={() => uretimOnayi(r)}>
                         {busy === r.docId ? "…" : "Üretim Onayı"}
                       </button>
                     )
                   )}
+
                   {r.durum === "uretimde" && (
-                    stok === true ? (
-                      <button disabled={busy === r.docId} onClick={() => sevkiyatOnayi(r)}>
-                        {busy === r.docId ? "…" : "Sevkiyat Onayı"}
+                    <Link to={`/siparis/kismi-sevkiyat/${r.docId}`}>
+                      <button
+                        disabled={busy === r.docId}
+                        style={{ background: "var(--yesil)", color: "white" }}
+                        title="Stokları kontrol et ve kısmi sevkiyat yap"
+                      >
+                        Sevkiyat Onayı
                       </button>
-                    ) : (
-                      <button className="theme-btn" disabled>Üretim Bekleniyor</button>
-                    )
+                    </Link>
                   )}
+
                   {r.durum !== "tamamlandi" && r.durum !== "reddedildi" && (
                     <button className="theme-btn" disabled={busy === r.docId} onClick={() => reddet(r)}>Reddet</button>
                   )}
                   {r.durum === "sevkiyat" && (
                     <button disabled={busy === r.docId} onClick={() => tamamla(r)}>Tamamla</button>
                   )}
-
                   {(r.durum === "tamamlandi" || r.durum === "reddedildi") && (
                     <button
                       className="theme-btn"
