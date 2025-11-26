@@ -1,145 +1,52 @@
-// src/pages/analiz/Analiz.tsx
 import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { veritabani } from "../../firebase";
+
+// Diğer dosyalardan import
 import {
-    ResponsiveContainer, ComposedChart, Area, Bar, XAxis, YAxis,
-    CartesianGrid, Tooltip, Legend, ReferenceLine
-} from "recharts";
+    AktifListe, Grup, SiparisRow, Urun,
+    getJSDate, keyOfDate, makeBuckets
+} from "./utils/AnalizUtils";
+import AnalizTopbar from "./widgets/AnalizTopbar";
+import AnalizGrafikler from "./widgets/AnalizGrafikler";
+import AnalizTablolar from "./widgets/AnalizTablolar";
 
-type SiparisDurumu = "beklemede" | "uretimde" | "sevkiyat" | "tamamlandi" | "reddedildi";
-type UrunSatiri = { urunAdi?: string; adet?: number; birimFiyat?: number; renk?: string };
-type SiparisRow = {
-    docId: string;
-    durum: SiparisDurumu;
-    tarih?: any;
-    islemeTarihi?: any;
-    brutTutar?: number;
-    netTutar?: number;
-    kdvTutar?: number;
-    urunler?: UrunSatiri[];
-};
-
-type Urun = {
-    id: number;
-    urunAdi: string;
-    adet: number;
-    grup?: string;
-};
-
-type Grup = "gun" | "hafta" | "ay" | "yil";
-type AktifListe = "satanUrunler" | "stokGrup" | "siparisGrup";
-
-
-const fmtNum = (n: number) => Number(n || 0).toLocaleString("tr-TR");
-const fmtTL = (n: number) =>
-    new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 })
-        .format(Number(n || 0));
-
-const getJSDate = (ts: any) => {
-    try { return ts?.toDate?.() ?? (ts instanceof Date ? ts : null); } catch { return null; }
-};
-const pad = (n: number) => String(n).padStart(2, "0");
-const addDays = (d: Date, i: number) => { const x = new Date(d); x.setDate(x.getDate() + i); return x; };
-const addHours = (d: Date, i: number) => { const x = new Date(d); x.setHours(x.getHours() + i, 0, 0, 0); return x; };
-const addMonths = (d: Date, i: number) => new Date(d.getFullYear(), d.getMonth() + i, 1);
-const floorHour = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), 0, 0, 0);
-const floorDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
-const firstOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
-
-/* renk paleti */
-const PALETTE = {
-    line: "#7aa2f7",
-    lineFrom: "rgba(122,162,247,.35)",
-    lineTo: "rgba(122,162,247,.05)",
-    bar: "#8bd5ff",
-    grid: "rgba(128,128,128,.25)",
-    muted: "var(--muted, #a6adbb)",
-};
-
-function makeBuckets(grup: Grup) {
-    const now = new Date();
-    if (grup === "gun") {
-        const end = floorHour(now);
-        const start = addHours(end, -23);
-        const arr: { key: string; label: string; date: Date }[] = [];
-        for (let i = 0; i < 24; i++) {
-            const d = addHours(start, i);
-            const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:00`;
-            const label = `${pad(d.getHours())}:00`;
-            arr.push({ key, label, date: d });
-        }
-        return arr;
-    }
-    if (grup === "hafta") {
-        const end = floorDay(now);
-        const start = addDays(end, -6);
-        const arr: { key: string; label: string; date: Date }[] = [];
-        for (let i = 0; i < 7; i++) {
-            const d = addDays(start, i);
-            const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-            const label = `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-            arr.push({ key, label, date: d });
-        }
-        return arr;
-    }
-    if (grup === "ay") {
-        const end = floorDay(now);
-        const start = addDays(end, -29);
-        const arr: { key: string; label: string; date: Date }[] = [];
-        for (let i = 0; i < 30; i++) {
-            const d = addDays(start, i);
-            const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-            const label = `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-            arr.push({ key, label, date: d });
-        }
-        return arr;
-    }
-    const m0 = firstOfMonth(now);
-    const start = addMonths(m0, -11);
-    const arr: { key: string; label: string; date: Date }[] = [];
-    for (let i = 0; i < 12; i++) {
-        const d = addMonths(start, i);
-        const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
-        arr.push({ key, label: key, date: d });
-    }
-    return arr;
-}
-function keyOfDate(d: Date, grup: Grup): string {
-    if (grup === "gun") {
-        const x = floorHour(d);
-        return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())} ${pad(x.getHours())}:00`;
-    }
-    if (grup === "hafta" || grup === "ay") {
-        const x = floorDay(d);
-        return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
-    }
-    const x = firstOfMonth(d);
-    return `${x.getFullYear()}-${pad(x.getMonth() + 1)}`;
-}
-
-
-/* ---- ANA ---- */
 export default function Analiz() {
     const [siparisler, setSiparisler] = useState<SiparisRow[]>([]);
     const [urunler, setUrunler] = useState<Urun[]>([]);
+    
     const [grup, setGrup] = useState<Grup>("gun");
     const [kombine, setKombine] = useState(true);
     const [aktifListe, setAktifListe] = useState<AktifListe>("satanUrunler");
 
+    // 1. VERİ ÇEKME
     useEffect(() => {
         const qySiparis = query(collection(veritabani, "siparisler"), orderBy("islemeTarihi", "desc"));
         const unsubSiparis = onSnapshot(qySiparis, (snap) => {
             const rows: SiparisRow[] = snap.docs.map((d) => {
                 const x = d.data() as any;
-                return { docId: d.id, durum: (x.durum || "beklemede"), tarih: x.tarih, islemeTarihi: x.islemeTarihi, brutTutar: Number(x.brutTutar ?? 0), netTutar: Number(x.netTutar ?? 0), kdvTutar: Number(x.kdvTutar ?? 0), urunler: Array.isArray(x.urunler) ? x.urunler : [] };
+                return {
+                    docId: d.id,
+                    durum: (x.durum || "beklemede"),
+                    tarih: x.tarih,
+                    islemeTarihi: x.islemeTarihi,
+                    brutTutar: Number(x.brutTutar ?? 0),
+                    netTutar: Number(x.netTutar ?? 0),
+                    kdvTutar: Number(x.kdvTutar ?? 0),
+                    urunler: Array.isArray(x.urunler) ? x.urunler : []
+                };
             });
             setSiparisler(rows);
         });
 
         const qyUrun = query(collection(veritabani, "urunler"), orderBy("urunAdi", "asc"));
         const unsubUrun = onSnapshot(qyUrun, (snap) => {
-            const list: Urun[] = snap.docs.map((d) => ({ id: Number(d.data().id ?? d.id), urunAdi: String(d.data().urunAdi ?? ""), adet: Number(d.data().adet ?? 0), grup: d.data().grup ?? undefined }));
+            const list: Urun[] = snap.docs.map((d) => ({
+                id: Number(d.data().id ?? d.id),
+                urunAdi: String(d.data().urunAdi ?? ""),
+                adet: Number(d.data().adet ?? 0),
+                grup: d.data().grup ?? undefined
+            }));
             setUrunler(list);
         });
 
@@ -149,14 +56,16 @@ export default function Analiz() {
         };
     }, []);
 
+    // 2. HESAPLAMALAR
     const tamamlanan = useMemo(() => siparisler.filter((r) => r.durum === "tamamlandi"), [siparisler]);
     const guncelSiparisler = useMemo(() => siparisler.filter(s => s.durum !== 'tamamlandi' && s.durum !== 'reddedildi'), [siparisler]);
-
     const buckets = useMemo(() => makeBuckets(grup), [grup]);
 
+    // Grafik Verisi Hesaplama
     const { seri, toplamCiro, toplamSiparis, currentLabel, refText } = useMemo(() => {
-        const map = new Map<string, { key: string; label: string; ciro: number; adet: number }>();
-        for (const b of buckets) map.set(b.key, { key: b.key, label: b.label, ciro: 0, adet: 0 });
+        const map = new Map<string, { key: string; label: string; ciro: number; adet: number; date: Date }>();
+        for (const b of buckets) map.set(b.key, { key: b.key, label: b.label, ciro: 0, adet: 0, date: b.date });
+        
         for (const r of tamamlanan) {
             const d = getJSDate(r.islemeTarihi) || getJSDate(r.tarih);
             if (!d) continue;
@@ -171,9 +80,11 @@ export default function Analiz() {
         const toplamSiparis = arr.reduce((t, x) => t + x.adet, 0);
         const currentLabel = buckets[buckets.length - 1]?.label;
         const refText = grup === "gun" ? "Şu anki saat" : grup === "hafta" ? "Bugün" : grup === "ay" ? "Bugün" : "Bu ay";
+        
         return { seri: arr, toplamCiro, toplamSiparis, currentLabel, refText };
     }, [tamamlanan, buckets, grup]);
 
+    // Tablo: En Çok Satanlar
     const topUrunler = useMemo(() => {
         const m = new Map<string, { urunAdi: string; adet: number; ciro: number }>();
         for (const r of tamamlanan) {
@@ -190,6 +101,7 @@ export default function Analiz() {
         return arr.map(x => ({ ...x, pay: x.adet / toplamAdet }));
     }, [tamamlanan]);
 
+    // Tablo: Stok Grupları
     const topGruplar = useMemo(() => {
         const m = new Map<string, { grupAdi: string; adet: number }>();
         for (const u of urunler) {
@@ -203,6 +115,7 @@ export default function Analiz() {
         return arr.map(x => ({ ...x, pay: x.adet / toplamAdet }));
     }, [urunler]);
 
+    // Tablo: Güncel Sipariş İhtiyacı
     const guncelSiparisGruplari = useMemo(() => {
         const urunGrupMap = new Map<string, string>();
         urunler.forEach(u => urunGrupMap.set(u.urunAdi, u.grup || "(Grupsuz)"));
@@ -212,176 +125,43 @@ export default function Analiz() {
             for (const u of (r.urunler || [])) {
                 const ad = (u.urunAdi || "").trim();
                 if (!ad) continue;
-                
                 const grupAdi = urunGrupMap.get(ad) || "(Bilinmeyen Ürün)";
                 const adet = Number(u.adet || 0);
-                
                 const prev = m.get(grupAdi) || { grupAdi, adet: 0 };
                 m.set(grupAdi, { grupAdi, adet: prev.adet + adet });
             }
         }
         const arr = Array.from(m.values()).sort((a, b) => b.adet - a.adet);
         const toplamAdet = arr.reduce((t, x) => t + x.adet, 0) || 1;
-        
         return arr.map(x => ({ ...x, pay: x.adet / toplamAdet }));
     }, [guncelSiparisler, urunler]);
 
-    const tooltipFormatter = (value: unknown, _name: string, payload: any) => {
-        if (payload?.dataKey === "adet") return [fmtNum(Number(value)), "Sipariş"];
-        if (payload?.dataKey === "ciro") return [fmtTL(Number(value)), "Ciro"];
-        return [String(value ?? ""), ""];
-    };
-
     return (
         <div style={{ display: "grid", gap: 16 }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <h2 style={{ margin: 0 }}>Analiz</h2>
-                <div className="seg" style={{ display: "inline-flex", border: "1px solid var(--panel-bdr)", borderRadius: 12, overflow: "hidden" }}>
-                    {([
-                        { k: "gun", t: "Günlük" }, { k: "hafta", t: "Haftalık" },
-                        { k: "ay", t: "Aylık" }, { k: "yil", t: "Yıllık" },
-                    ] as { k: Grup; t: string }[]).map(x => (
-                        <button key={x.k} className="theme-btn" onClick={() => setGrup(x.k)}
-                            style={{
-                                border: "none", borderRight: "1px solid var(--panel-bdr)",
-                                background: grup === x.k ? "color-mix(in oklab, var(--ana) 18%, transparent)" : "transparent"
-                            }}
-                        >{x.t}</button>
-                    ))}
-                </div>
-                <button className="theme-btn" onClick={() => setKombine(v => !v)}>
-                    {kombine ? "🔀 Ayrı Grafikler" : "🔗 Kombine Grafik"}
-                </button>
-                <div style={{ marginLeft: "auto", display: "flex", gap: 12 }}>
-                    <div className="card" style={{ padding: "6px 10px" }}>
-                        <div style={{ fontSize: 12, color: "var(--muted)" }}>Toplam Ciro</div>
-                        <div style={{ fontWeight: 800 }}>{fmtTL(toplamCiro)}</div>
-                    </div>
-                    <div className="card" style={{ padding: "6px 10px" }}>
-                        <div style={{ fontSize: 12, color: "var(--muted)" }}>Toplam Sipariş</div>
-                        <div style={{ fontWeight: 800 }}>{fmtNum(toplamSiparis)}</div>
-                    </div>
-                </div>
-            </div>
+            <AnalizTopbar
+                grup={grup}
+                setGrup={setGrup}
+                kombine={kombine}
+                setKombine={setKombine}
+                toplamCiro={toplamCiro}
+                toplamSiparis={toplamSiparis}
+            />
 
-            {kombine ? (
-                <div className="card" style={{ height: 380 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={seri} margin={{ top: 12, right: 20, bottom: 4, left: 8 }}>
-                            <defs>
-                                <linearGradient id="ciroGrad" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor={PALETTE.lineFrom} /><stop offset="100%" stopColor={PALETTE.lineTo} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid vertical={false} stroke={PALETTE.grid} />
-                            <XAxis dataKey="label" tick={{ fill: PALETTE.muted }} />
-                            <YAxis yAxisId="L" tick={{ fill: PALETTE.muted }} width={38} />
-                            <YAxis yAxisId="R" orientation="right" tick={{ fill: PALETTE.muted }} tickFormatter={(v: number) => fmtTL(v).replace("₺", "")} width={54} />
-                            <Tooltip
-                                contentStyle={{ background: "rgba(20,22,28,.92)", border: "1px solid var(--panel-bdr,#2a2f3a)", borderRadius: 10 }}
-                                labelStyle={{ color: PALETTE.muted }} formatter={tooltipFormatter} labelFormatter={(l: string) => `Dönem: ${l}`} />
-                            <Legend formatter={(val: string) => <span style={{ color: PALETTE.muted }}>{val}</span>} />
-                            <ReferenceLine x={currentLabel} stroke={PALETTE.grid} label={{ value: refText, fill: PALETTE.muted, position: "top" }} />
-                            <Bar yAxisId="L" dataKey="adet" name="Sipariş" fill={PALETTE.bar} radius={[6, 6, 0, 0]} barSize={grup === "gun" ? 10 : 18} />
-                            <Area yAxisId="R" type="monotone" dataKey="ciro" name="Ciro" stroke="#7aa2f7" fill="url(#ciroGrad)" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 5 }} />
-                        </ComposedChart>
-                    </ResponsiveContainer>
-                </div>
-            ) : (
-                <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr 1fr" }}>
-                    {/* Ayrı grafikler burada render edilebilir, şimdilik boş */}
-                </div>
-            )}
+            <AnalizGrafikler
+                data={seri}
+                grup={grup}
+                kombine={kombine}
+                currentLabel={currentLabel}
+                refText={refText}
+            />
 
-            <div className="card" style={{ padding: "8px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <button className="theme-btn"
-                    style={{ flex: 1, minWidth: '200px', borderColor: aktifListe === 'satanUrunler' ? 'var(--ana)' : 'var(--panel-bdr)' }}
-                    onClick={() => setAktifListe('satanUrunler')}>
-                    En Çok Satan Ürünler
-                </button>
-                <button className="theme-btn"
-                    style={{ flex: 1, minWidth: '200px', borderColor: aktifListe === 'stokGrup' ? 'var(--ana)' : 'var(--panel-bdr)' }}
-                    onClick={() => setAktifListe('stokGrup')}>
-                    Stok Dağılımı (Grup)
-                </button>
-                <button className="theme-btn"
-                    style={{ flex: 1, minWidth: '200px', borderColor: aktifListe === 'siparisGrup' ? 'var(--ana)' : 'var(--panel-bdr)' }}
-                    onClick={() => setAktifListe('siparisGrup')}>
-                    Güncel Sipariş İhtiyacı (Grup)
-                </button>
-            </div>
-
-            <div>
-                {aktifListe === 'satanUrunler' && (
-                    <div className="card">
-                        <h3 style={{ marginTop: 0 }}>En Çok Satan Ürünler</h3>
-                        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 120px 120px 1fr 64px", gap: 8, fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
-                            <div>Ürün</div><div>Adet</div><div>Ciro</div><div>Pay</div><div>%</div>
-                        </div>
-                        <div style={{ display: "grid", gap: 10 }}>
-                            {topUrunler.map((u) => {
-                                const pct = Math.max(0, Math.min(100, Math.round(u.pay * 100)));
-                                return (
-                                    <div key={u.urunAdi} className="row" style={{ display: "grid", gridTemplateColumns: "1.4fr 120px 120px 1fr 64px", gap: 8, alignItems: "center", border: "1px solid var(--panel-bdr)", borderRadius: 10, padding: "8px 10px" }}>
-                                        <div><b>{u.urunAdi || "—"}</b></div>
-                                        <div><b>{fmtNum(u.adet)}</b></div>
-                                        <div>{fmtTL(u.ciro)}</div>
-                                        <div className="progress"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
-                                        <div style={{ textAlign: "right" }}>{pct}%</div>
-                                    </div>
-                                );
-                            })}
-                            {!topUrunler.length && <div>Veri yok.</div>}
-                        </div>
-                    </div>
-                )}
-
-                {aktifListe === 'stokGrup' && (
-                    <div className="card">
-                        <h3 style={{ marginTop: 0 }}>Stok Dağılımı (Grup)</h3>
-                        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 120px 1fr 64px", gap: 8, fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
-                            <div>Grup</div><div>Stok Adedi</div><div>Pay</div><div>%</div>
-                        </div>
-                        <div style={{ display: "grid", gap: 10 }}>
-                            {topGruplar.map((g) => {
-                                const pct = Math.max(0, Math.min(100, Math.round(g.pay * 100)));
-                                return (
-                                    <div key={g.grupAdi} className="row" style={{ display: "grid", gridTemplateColumns: "1.4fr 120px 1fr 64px", gap: 8, alignItems: "center", border: "1px solid var(--panel-bdr)", borderRadius: 10, padding: "8px 10px" }}>
-                                        <div><b>{g.grupAdi}</b></div>
-                                        <div><b>{fmtNum(g.adet)}</b></div>
-                                        <div className="progress"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
-                                        <div style={{ textAlign: "right" }}>{pct}%</div>
-                                    </div>
-                                );
-                            })}
-                            {!topGruplar.length && <div>Veri yok.</div>}
-                        </div>
-                    </div>
-                )}
-
-                {aktifListe === 'siparisGrup' && (
-                    <div className="card">
-                        <h3 style={{ marginTop: 0 }}>Güncel Sipariş İhtiyacı (Grup Bazlı)</h3>
-                        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 120px 1fr 64px", gap: 8, fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
-                            <div>Grup</div><div>İstenen Adet</div><div>Pay</div><div>%</div>
-                        </div>
-                        <div style={{ display: "grid", gap: 10 }}>
-                            {guncelSiparisGruplari.map((g) => {
-                                const pct = Math.max(0, Math.min(100, Math.round(g.pay * 100)));
-                                return (
-                                    <div key={g.grupAdi} className="row" style={{ display: "grid", gridTemplateColumns: "1.4fr 120px 1fr 64px", gap: 8, alignItems: "center", border: "1px solid var(--panel-bdr)", borderRadius: 10, padding: "8px 10px" }}>
-                                        <div><b>{g.grupAdi}</b></div>
-                                        <div><b>{fmtNum(g.adet)}</b></div>
-                                        <div className="progress"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
-                                        <div style={{ textAlign: "right" }}>{pct}%</div>
-                                    </div>
-                                );
-                            })}
-                            {!guncelSiparisGruplari.length && <div>Aktif siparişlerde ürün ihtiyacı yok.</div>}
-                        </div>
-                    </div>
-                )}
-            </div>
+            <AnalizTablolar
+                aktifListe={aktifListe}
+                setAktifListe={setAktifListe}
+                topUrunler={topUrunler}
+                topGruplar={topGruplar}
+                guncelSiparisGruplari={guncelSiparisGruplari}
+            />
 
             <div style={{ fontSize: 12, color: "var(--muted)" }}>
                 Görüntülenen aralık: {grup === "gun" ? "Son 24 saat" : grup === "hafta" ? "Son 7 gün" : grup === "ay" ? "Son 30 gün" : "Son 12 ay"}.
