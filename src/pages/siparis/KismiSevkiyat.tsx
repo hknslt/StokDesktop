@@ -10,13 +10,13 @@ import {
     siparisBolVeSevkEt,
     guncelleDurum,
     SiparisDurumu,
-    StokDurumTipi 
+    StokDurumTipi
 } from "../../services/SiparisService";
 
 type SevkSatiri = SiparisSatiri & {
     mevcutStok: number;
-    durum: StokDurumTipi; 
-    sevkAdedi: number; 
+    durum: StokDurumTipi;
+    sevkAdedi: number;
 };
 
 const fmtNum = (n: number) => Number(n || 0).toLocaleString("tr-TR");
@@ -71,18 +71,17 @@ export default function KismiSevkiyat() {
 
                 const stokMap = await urunStokDurumHaritasi(mevcutSiparis.urunler);
 
-                // GÜNCELLENDİ: 'durum' bilgisi de eklendi
                 const baslangicListesi: SevkSatiri[] = mevcutSiparis.urunler.map(urun => {
-                    const detay = stokMap.get(urun.id); // Tam detayı al
+                    const detay = stokMap.get(urun.id);
                     const stok = detay?.mevcutStok || 0;
-                    const durum = detay?.durum || 'YETERSİZ'; // Stokta olmayan ürünü 'YETERSİZ' say
+                    const durum = detay?.durum || 'YETERSİZ';
                     const istenen = Number(urun.adet || 0);
                     const varsayilanSevkAdedi = Math.max(0, Math.min(istenen, stok));
 
                     return {
                         ...urun,
                         mevcutStok: stok,
-                        durum: durum, // Stok durumunu satıra kaydet
+                        durum: durum,
                         sevkAdedi: varsayilanSevkAdedi,
                     };
                 });
@@ -99,7 +98,6 @@ export default function KismiSevkiyat() {
         veriGetir();
     }, [id, nav]);
 
-    // ... (handleAdetChange, tumunuSec, tumunuSifirla, toplamları hesapla, onaylaVeBol fonksiyonları aynı kalır) ...
     const handleAdetChange = (urunId: string, yeniSevkAdediStr: string) => {
         setSevkListesi(prevList =>
             prevList.map(item => {
@@ -115,6 +113,7 @@ export default function KismiSevkiyat() {
             })
         );
     };
+
     const tumunuSec = () => {
         setSevkListesi(prevList =>
             prevList.map(item => ({
@@ -123,9 +122,11 @@ export default function KismiSevkiyat() {
             }))
         );
     };
+
     const tumunuSifirla = () => {
         setSevkListesi(prevList => prevList.map(item => ({ ...item, sevkAdedi: 0 })));
     };
+
     const { toplamSevkEdilecek, toplamKalan } = useMemo(() => {
         let toplamSevk = 0;
         let toplamKalan = 0;
@@ -137,6 +138,7 @@ export default function KismiSevkiyat() {
         }
         return { toplamSevkEdilecek: toplamSevk, toplamKalan: toplamKalan };
     }, [sevkListesi]);
+
     async function onaylaVeBol() {
         if (!siparis) return;
         if (toplamSevkEdilecek === 0 && toplamKalan === 0 && siparis.urunler.length > 0) {
@@ -205,10 +207,28 @@ export default function KismiSevkiyat() {
                 </Link>
             </div>
 
-            <div className="card">
-                <div><b>Müşteri:</b> {siparis.musteri?.firmaAdi || siparis.musteri?.yetkili}</div>
-                <div><b>Orijinal Sipariş ID:</b> {siparis.siparisId || siparis.docId}</div>
-                <div><b>Durum:</b> <span className={`tag status-${siparis.durum}`}>{ETIKET[siparis.durum as SiparisDurumu]}</span></div>
+            {/* GÜNCELLENDİ: Müşteri Bilgileri Kartı */}
+            <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div>
+                    <div>
+                        <b>Müşteri:</b> {siparis.musteri?.firmaAdi}
+                        {siparis.musteri?.yetkili ? ` • ${siparis.musteri?.yetkili}` : ""}
+                    </div>
+                    {siparis.musteri?.telefon && (
+                        <div><b>Tel:</b> {siparis.musteri.telefon}</div>
+                    )}
+                    {siparis.musteri?.adres && (
+                        <div><b>Adres:</b> {siparis.musteri.adres}</div>
+                    )}
+                </div>
+                <div>
+                    <div>
+                        <b>Tarih:</b> {siparis.tarih?.toDate?.().toLocaleDateString("tr-TR") || "-"}
+                    </div>
+                    <div>
+                        <b>Durum:</b> <span className={`tag status-${siparis.durum}`}>{ETIKET[siparis.durum as SiparisDurumu]}</span>
+                    </div>
+                </div>
             </div>
 
             <div className="card">
@@ -241,27 +261,23 @@ export default function KismiSevkiyat() {
                             <div key={item.id} style={{
                                 display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1.2fr", gap: 10,
                                 alignItems: "center",
-                                border: "1px solid", // GÜNCELLENDİ: Sadece 'solid'
+                                border: "1px solid",
                                 borderRadius: 10, padding: "10px",
-
-                                // GÜNCELLENDİ: Arka planı seçim yerine stok durumuna göre renklendir
                                 backgroundColor: item.durum === 'YETERLI' ? "var(--yesil-bg, #e8f5e9)"
                                     : item.durum === 'KRITIK' ? "var(--sari-bg, #fffde7)"
                                         : item.durum === 'YETERSİZ' ? "var(--kirmizi-bg, #ffebee)"
                                             : "transparent",
-                                // GÜNCELLENDİ: Kenarlık rengi ve kalınlığı eklendi
                                 borderColor: item.durum === 'YETERLI' ? "var(--yesil, #4caf50)"
                                     : item.durum === 'KRITIK' ? "var(--sari, #ffc107)"
                                         : item.durum === 'YETERSİZ' ? "var(--kirmizi, #f44336)"
                                             : "var(--panel-bdr, #ddd)",
-                                borderWidth: 2, // Daha belirgin kenarlık
+                                borderWidth: 2,
                             }}>
                                 <div>
                                     <b>{item.urunAdi}</b>
                                     {item.renk && <span style={{ opacity: 0.8 }}> • {item.renk}</span>}
                                 </div>
                                 <div style={{ justifySelf: "end", fontSize: 16 }}><b>{fmtNum(istenen)}</b></div>
-                                {/* GÜNCELLENDİ: Stok durumu renklendirmesi SiparisDetay ile aynı oldu */}
                                 <div style={{ justifySelf: "end", fontSize: 16, color: item.durum === 'YETERSİZ' ? PALETTE.red : "inherit" }}>
                                     {fmtNum(stok)}
                                 </div>
@@ -304,7 +320,6 @@ export default function KismiSevkiyat() {
                         disabled={busy}
                         style={{ padding: "12px 24px", fontSize: 16, fontWeight: 700 }}
                     >
-                        {/* GÜNCELLENDİ: Buton metni daha net hale getirildi */}
                         {busy ? "İşleniyor..." : (toplamSevkEdilecek > 0 ? "Sevkiyatı Onayla" : "Sadece Üretime Al")}
                     </button>
                 </div>
