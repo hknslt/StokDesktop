@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   hepsiDinle,
   guncelleDurum,
-  // sevkiyataGecir, // Bu fonksiyonu sildiğinizi varsayıyorum, import'u kaldırıldı.
-  uretimeOnayla, // Stokta yoksa üretime almak için bu gerekli
+  uretimeOnayla,
   SiparisDurumu,
   stokYeterlilikHaritasi,
   reddetVeIade,
@@ -27,7 +26,6 @@ function toDateOrNull(v: any): Date | null {
   return null;
 }
 
-// GÜNCELLENDİ: Para formatlayıcı eklendi
 const fmtTL = (n: number) =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 })
     .format(Number(n || 0));
@@ -42,9 +40,12 @@ export default function SiparisListesi() {
 
   // filtreler
   const [ara, setAra] = useState("");
+  
+  // GÜNCELLENDİ: Başlangıçta sadece aktif siparişler seçili
   const [seciliDurumlar, setSeciliDurumlar] = useState<Set<SiparisDurumu>>(
-    () => new Set(DURUMLAR)
+    () => new Set(["beklemede", "uretimde", "sevkiyat"])
   );
+  
   const [dateField, setDateField] = useState<"tarih" | "islemeTarihi">("islemeTarihi");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -94,8 +95,6 @@ export default function SiparisListesi() {
   }, [rows, seciliDurumlar, dateField, from, to, ara]);
 
   /* ---- aksiyonlar ---- */
-
-  // 'uretimOnayi' korundu (stok yetersizse üretime almak için)
   async function uretimOnayi(r: any) {
     setBusy(r.docId);
     try {
@@ -154,11 +153,14 @@ export default function SiparisListesi() {
       return next;
     });
   }
-  function durumHepsi() { setSeciliDurumlar(new Set(DURUMLAR)); }
+  
+  // GÜNCELLENDİ: Buton fonksiyonları
+  function durumAktif() { setSeciliDurumlar(new Set(["beklemede", "uretimde", "sevkiyat"])); }
   function durumGecmis() { setSeciliDurumlar(new Set(["tamamlandi", "reddedildi"])); }
-  function durumYok() { setSeciliDurumlar(new Set()); }
+  function durumHepsi() { setSeciliDurumlar(new Set(DURUMLAR)); }
+  
   function filtreSifirla() {
-    setSeciliDurumlar(new Set(DURUMLAR));
+    setSeciliDurumlar(new Set());
     setDateField("islemeTarihi");
     setFrom(""); setTo(""); setAra("");
   }
@@ -194,9 +196,12 @@ export default function SiparisListesi() {
           <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           <input className="input" placeholder="Ara (müşteri/ürün…)" value={ara} onChange={(e) => setAra(e.target.value)} style={{ width: 260 }} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
-            <button className="theme-btn" type="button" onClick={durumGecmis} title="Sadece tamamlandı+reddedildi">Tam./Red.</button>
+            
+            {/* GÜNCELLENDİ: Buton Grubu */}
+            <button className="theme-btn" type="button" onClick={durumAktif} title="Bekleyen, Üretim, Sevkiyat">Aktif Siparişler</button>
+            <button className="theme-btn" type="button" onClick={durumGecmis} title="Tamamlandı, Reddedildi">Geçmiş</button>
             <button className="theme-btn" type="button" onClick={durumHepsi}>Tümü</button>
-            <button className="theme-btn" type="button" onClick={durumYok} title="Durum filtresi kapalı">Durum Yok</button>
+            
             <button className="theme-btn" type="button" onClick={filtreSifirla}>Sıfırla</button>
           </div>
         </div>
@@ -233,13 +238,11 @@ export default function SiparisListesi() {
             const stok = stokOk.get(r.docId);
             const musteriAd = r.musteri?.firmaAdi || r.musteri?.yetkili || "-";
 
-            // GÜNCELLENDİ: 'kapali' durumu artık 'sevkiyat'ı da içeriyor
             const kapali = r.durum === "tamamlandi" || r.durum === "reddedildi" || r.durum === "sevkiyat";
 
             const dotColor = kapali ? "var(--muted)" : (stok === false ? "var(--kirmizi)" : "var(--yesil)");
             const dotOpacity = kapali ? 0.6 : (stok === undefined ? 0.3 : 1);
 
-            // GÜNCELLENDİ: 'dotTitle' mantığı 'sevkiyat' durumunu da içerecek şekilde güncellendi
             const dotTitle =
               r.durum === "tamamlandi" ? "Tamamlandı" :
                 r.durum === "reddedildi" ? "Reddedildi" :
@@ -268,7 +271,6 @@ export default function SiparisListesi() {
                 <div>{r.islemeTarihi?.toDate?.().toLocaleDateString?.() || "-"}</div>
                 <div>{fmtTL(Number(r.brutTutar ?? 0))}</div>
 
-                {/* Butonlar (Bu mantık zaten bir önceki adımda düzeltilmişti, aynı kalıyor) */}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <Link to={`/siparis/${r.docId}`}><button className="theme-btn">Detay</button></Link>
                   <button className="theme-btn" onClick={() => teklifPdfYazdirWeb(r)}>Teklif PDF</button>
