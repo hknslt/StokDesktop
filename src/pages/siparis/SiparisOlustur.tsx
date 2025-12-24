@@ -198,35 +198,32 @@ export default function SiparisOlustur() {
 
   const [satirlar, setSatirlar] = useState<SiparisSatiri[]>([]);
   const [urunPicker, setUrunPicker] = useState(false);
-  const [urunAra, setUrunAra] = useState("");
 
-  const filtreliUrunler = useMemo(() => {
-    const q = urunAra.trim().toLowerCase();
-    if (!q) return urunler;
-    return urunler.filter((u) =>
-      [u.urunAdi, u.urunKodu, u.renk]
-        .filter(Boolean)
-        .map(String)
-        .map((s) => s.toLowerCase())
-        .some((s) => s.includes(q))
+  // Mevcut urunSec fonksiyonunu bununla değiştir:
+  async function topluUrunEkle(secilenUrunIds: number[]) {
+    if (!secilenUrunIds.length || !listeId) return;
+
+    // Yükleniyor durumu ekleyebilirsin istersen setFiyatUygulaniyor(true) gibi
+
+    // Tüm seçilen ürünleri bul
+    const eklenecekler = urunler.filter(u => secilenUrunIds.includes(u.id));
+
+    // Hepsinin fiyatını paralel olarak çek
+    const fiyatlar = await Promise.all(
+      eklenecekler.map(u => fiyatGetir(u.id, listeId))
     );
-  }, [urunler, urunAra]);
 
-  async function urunSec(urunId: number) {
-    const u = urunler.find((x) => x.id === urunId);
-    if (!u || !listeId) return;
-    const birim = await fiyatGetir(urunId, listeId);
-    setSatirlar((s) => [
-      ...s,
-      {
-        id: String(urunId),
-        urunAdi: u.urunAdi,
-        renk: u.renk,
-        adet: 1,
-        birimFiyat: birim,
-      },
-    ]);
-    setUrunPicker(false);
+    // Yeni satırları oluştur
+    const yeniSatirlar: SiparisSatiri[] = eklenecekler.map((u, index) => ({
+      id: String(u.id),
+      urunAdi: u.urunAdi,
+      renk: u.renk,
+      adet: 1,
+      birimFiyat: fiyatlar[index],
+    }));
+
+    setSatirlar((s) => [...s, ...yeniSatirlar]);
+    setUrunPicker(false); // Modalı kapat
   }
   function satirSil(i: number) {
     setSatirlar((s) => s.filter((_, idx) => idx !== i));
@@ -658,44 +655,184 @@ export default function SiparisOlustur() {
 
       {/* Ürün seçici modal */}
       {urunPicker && (
-        <div className="modal" onClick={() => setUrunPicker(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <b>Ürün Ekle</b>
-              <input
-                className="input"
-                placeholder="Ara (ad/kod/renk)…"
-                value={urunAra}
-                onChange={(e) => setUrunAra(e.target.value)}
-                style={{ marginLeft: "auto" }}
-              />
-            </div>
-            <div
-              style={{
-                marginTop: 8,
-                maxHeight: 360,
-                overflow: "auto",
-                display: "grid",
-                gap: 6,
-              }}
-            >
-              {filtreliUrunler.map((u) => (
-                <button
-                  key={u.id}
-                  className="list-btn"
-                  onClick={() => urunSec(u.id)}
+        <UrunSeciciModal
+          urunler={urunler}
+          onClose={() => setUrunPicker(false)}
+          onConfirm={(ids) => topluUrunEkle(ids)}
+        />
+      )}
+    </div>
+  );
+}
+
+
+
+/* ------------ Yeni Modal Bileşeni ------------ */
+function UrunSeciciModal({
+  onClose,
+  onConfirm,
+  urunler,
+}: {
+  onClose: () => void;
+  onConfirm: (ids: number[]) => void;
+  urunler: Urun[];
+}) {
+  const [ara, setAra] = useState("");
+  const [seciliIds, setSeciliIds] = useState<Set<number>>(new Set());
+  const [focusIndex, setFocusIndex] = useState(0);
+
+  // Arama filtresi
+  const filtreli = useMemo(() => {
+    const q = ara.trim().toLowerCase();
+    if (!q) return urunler;
+    return urunler.filter((u) =>
+      [u.urunAdi, u.urunKodu, u.renk]
+        .filter(Boolean)
+        .map(String)
+        .map((s) => s.toLowerCase())
+        .some((s) => s.includes(q))
+    );
+  }, [urunler, ara]);
+
+  // Arama değişince focus'u sıfırla
+  useEffect(() => {
+    setFocusIndex(0);
+  }, [ara]);
+
+  // Klavye Kontrolü
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocusIndex((prev) => Math.min(prev + 1, filtreli.length - 1));
+        // Otomatik scroll işlemi
+        document.getElementById(`urun-item-${focusIndex + 1}`)?.scrollIntoView({ block: "nearest" });
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocusIndex((prev) => Math.max(prev - 1, 0));
+        document.getElementById(`urun-item-${focusIndex - 1}`)?.scrollIntoView({ block: "nearest" });
+      } else if (e.key === " ") {
+        // Space tuşu: Seçimi değiştir (Toggle)
+        e.preventDefault();
+        const u = filtreli[focusIndex];
+        if (u) toggleSelection(u.id);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        // Eğer hiç seçim yapılmadıysa ama Enter'a basıldıysa, o an üstünde durulanı ekle
+        if (seciliIds.size === 0 && filtreli[focusIndex]) {
+          onConfirm([filtreli[focusIndex].id]);
+        } else {
+          // Seçili olanları ekle
+          onConfirm(Array.from(seciliIds));
+        }
+      } else if (e.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [focusIndex, filtreli, seciliIds]); // Dependency'ler önemli
+
+  function toggleSelection(id: number) {
+    setSeciliIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <div className="modal" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ width: 600, maxWidth: "95%" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+          <b>Ürün Ekle</b>
+          <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>(Yön Tuşları: Gezin, Space: Seç, Enter: Ekle)</span>
+          <input
+            autoFocus
+            className="input"
+            placeholder="Ara..."
+            value={ara}
+            onChange={(e) => setAra(e.target.value)}
+            style={{ marginLeft: "auto" }}
+          />
+        </div>
+
+        <div
+          style={{
+            maxHeight: 400,
+            overflow: "auto",
+            display: "grid",
+            gap: 4,
+            border: "1px solid #eee",
+            padding: 4,
+            borderRadius: 8
+          }}
+        >
+          {filtreli.map((u, idx) => {
+            const isSelected = seciliIds.has(u.id);
+            const isFocused = idx === focusIndex;
+            return (
+              <div
+                id={`urun-item-${idx}`}
+                key={u.id}
+                onClick={() => toggleSelection(u.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "8px 12px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  // Focus ve Seçim Renkleri
+                  backgroundColor: isFocused ? "#e3f2fd" : isSelected ? "#f0f9ff" : "white",
+                  border: isFocused ? "1px solid #2196f3" : "1px solid transparent",
+                  transition: "all 0.1s"
+                }}
+              >
+                {/* Checkbox Görünümü */}
+                <div
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: 4,
+                    border: isSelected ? "none" : "2px solid #ddd",
+                    backgroundColor: isSelected ? "#2196f3" : "transparent",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "white",
+                    fontWeight: "bold",
+                    fontSize: 12
+                  }}
                 >
-                  <div style={{ fontWeight: 700 }}>{u.urunAdi}</div>
-                  <div style={{ fontSize: 12, opacity: 0.8 }}>
+                  {isSelected && "✓"}
+                </div>
+
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600 }}>{u.urunAdi}</div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>
                     {u.urunKodu} {u.renk ? `• ${u.renk}` : ""}
                   </div>
-                </button>
-              ))}
-              {!filtreliUrunler.length && <div>Sonuç yok.</div>}
-            </div>
-          </div>
+                </div>
+              </div>
+            );
+          })}
+          {!filtreli.length && <div style={{ padding: 10, color: '#999' }}>Sonuç bulunamadı.</div>}
         </div>
-      )}
+
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button className="theme-btn" onClick={onClose} style={{ backgroundColor: '#ccc' }}>Vazgeç</button>
+          <button
+            className="theme-btn"
+            onClick={() => onConfirm(Array.from(seciliIds))}
+            disabled={seciliIds.size === 0}
+          >
+            Seçilenleri Ekle ({seciliIds.size})
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
