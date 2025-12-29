@@ -260,6 +260,7 @@ export default function SiparisOlustur() {
     if (!kaydedilebilir) return;
 
     let embedToUse = musteriEmbed!;
+    let kaydedilecekMusteriId: string | number | undefined = undefined;
 
     // Manuel mod + "kaydet" tiki açık ise önce müşteriyi koleksiyona ekle
     if (!kayitliMi && manuelKaydet) {
@@ -289,11 +290,15 @@ export default function SiparisOlustur() {
         adres: docData.adres,
       };
 
-      // UI tarafında da seçim yapılan müşteri gibi davranması için
+      kaydedilecekMusteriId = yeniId;
       setSeciliMusteriId(ref.id);
+    }
+    else if (kayitliMi && seciliMusteri) {
+        kaydedilecekMusteriId = seciliMusteri.id; // <--- Seçili ID'yi al
     }
 
     await ekleSiparis({
+      musteriId: kaydedilecekMusteriId,
       musteri: embedToUse,
       urunler: satirlar,
       durum: "beklemede",

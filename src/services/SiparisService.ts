@@ -30,6 +30,7 @@ export type SiparisMusteri = {
 };
 
 export type SiparisModel = {
+  musteriId?: string | number;
   musteri: SiparisMusteri;
   urunler: SiparisSatiri[];
   durum: SiparisDurumu;

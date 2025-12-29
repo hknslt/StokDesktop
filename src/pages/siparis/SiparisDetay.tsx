@@ -1,6 +1,5 @@
 // src/sayfalar/siparis/SiparisDetay.tsx
 import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -13,6 +12,7 @@ import {
   sevkiyattanGeriCek,
 } from "../../services/SiparisService";
 import { siparisPdfYazdirWeb } from "../../pdf/siparisPdf";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 
 const ETIKET: Record<SiparisDurumu, string> = {
   beklemede: "Beklemede",
@@ -30,19 +30,32 @@ export default function SiparisDetay() {
   const [busy, setBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [stokDetaylari, setStokDetaylari] = useState<Map<string, StokDetay>>(new Map());
+  const [guncelMusteri, setGuncelMusteri] = useState<any>(null);
 
   useEffect(() => {
     (async () => {
       if (!id) return;
       setYuk(true);
-      // GÜNCELLENDİ: id'nin undefined olamayacağını belirtmek için 'id!' kullanıldı
       const snap = await getDoc(doc(veritabani, "siparisler", id!));
 
       if (snap.exists()) {
         const data = snap.data() as any;
-        // GÜNCELLENDİ: 'id!' kullanıldı
         const siparis = { ...data, docId: id! };
         setR(siparis);
+
+        if (siparis.musteriId) {
+          // Veritabanında ID alanı sayı ise Number(), string ise String() kullan. 
+          // Senin sistemde muhtemelen number tutuyorsun (sonrakiMusteriId fonksiyonundan dolayı)
+          const q = query(collection(veritabani, "musteriler"), where("id", "==", Number(siparis.musteriId)));
+          const mSnap = await getDocs(q);
+          if (!mSnap.empty) {
+            setGuncelMusteri(mSnap.docs[0].data());
+          } else {
+            setGuncelMusteri(siparis.musteri); // Bulamazsa eskisi kalsın
+          }
+        } else {
+          setGuncelMusteri(siparis.musteri); // ID yoksa (manuel müşteri) eskisi kalsın
+        }
 
         if ((siparis.durum === "beklemede" || siparis.durum === "uretimde") && data.urunler?.length) {
           const stokMap = await urunStokDurumHaritasi(siparis.urunler);
@@ -193,13 +206,13 @@ export default function SiparisDetay() {
             <span className={`tag status-${r.durum}`}>{ETIKET[r.durum as SiparisDurumu] ?? r.durum}</span>
           </div>
           <div>
-            <b>Müşteri:</b> {r.musteri?.firmaAdi} {r.musteri?.yetkili ? `• ${r.musteri?.yetkili}` : ""}
+            <b>Müşteri:</b> {guncelMusteri?.firmaAdi} {guncelMusteri?.yetkili ? `• ${guncelMusteri?.yetkili}` : ""}
           </div>
           <div>
-            <b>Tel:</b> {r.musteri?.telefon || "-"}
+            <b>Tel:</b> {guncelMusteri?.telefon || "-"}
           </div>
           <div>
-            <b>Adres:</b> {r.musteri?.adres || "-"}
+            <b>Adres:</b> {guncelMusteri?.adres || "-"}
           </div>
           <div>
             <b>Tarih:</b> {r.tarih?.toDate?.().toLocaleDateString?.() || "-"}

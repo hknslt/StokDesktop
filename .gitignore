@@ -5,6 +5,7 @@ out/
 dist-electron/
 build/
 release/
+src/config/
 
 # Electron build outputs
 *.exe
@@ -17,3 +18,5 @@ release/
 # OS/Junk
 .DS_Store
 Thumbs.db
+
+.env

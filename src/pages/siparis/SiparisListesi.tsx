@@ -10,6 +10,8 @@ import {
 } from "../../services/SiparisService";
 import { Link, useNavigate } from "react-router-dom";
 import { teklifPdfYazdirWeb } from "../../pdf/teklifPdf";
+import { collection, onSnapshot } from "firebase/firestore";
+import { veritabani } from "../../firebase";
 
 /* ---------- sabitler ---------- */
 const DURUMLAR: SiparisDurumu[] = ["beklemede", "uretimde", "sevkiyat", "tamamlandi", "reddedildi"];
@@ -37,15 +39,15 @@ export default function SiparisListesi() {
   // veri
   const [rows, setRows] = useState<any[]>([]);
   const [stokOk, setStokOk] = useState<Map<string, boolean | undefined>>(new Map());
+  const [musteriMap, setMusteriMap] = useState<Record<string, any>>({});
 
   // filtreler
   const [ara, setAra] = useState("");
-  
-  // GÜNCELLENDİ: Başlangıçta sadece aktif siparişler seçili
+
   const [seciliDurumlar, setSeciliDurumlar] = useState<Set<SiparisDurumu>>(
     () => new Set(["beklemede", "uretimde", "sevkiyat"])
   );
-  
+
   const [dateField, setDateField] = useState<"tarih" | "islemeTarihi">("islemeTarihi");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -53,11 +55,29 @@ export default function SiparisListesi() {
   // buton/basit durum
   const [busy, setBusy] = useState<string | null>(null);
 
+
+
   /* ---- canlı veri ---- */
   useEffect(() => hepsiDinle(async (r) => {
     setRows(r);
     setStokOk(await stokYeterlilikHaritasi(r));
   }), []);
+  /* CANLI MÜŞTERİ DİNLEME */
+  useEffect(() => {
+    const qy = collection(veritabani, "musteriler");
+    const unsub = onSnapshot(qy, (snap) => {
+      const harita: Record<string, any> = {};
+      snap.docs.forEach((d) => {
+        const data = d.data();
+        // ID'yi anahtar olarak kullanıyoruz. Veritabanında ID number ise string'e çeviriyoruz.
+        if (data.id) {
+          harita[String(data.id)] = data;
+        }
+      });
+      setMusteriMap(harita);
+    });
+    return () => unsub();
+  }, []);
 
   /* ---- filtre + sıralama + özet ---- */
   const { liste, toplamBrut } = useMemo(() => {
@@ -74,12 +94,18 @@ export default function SiparisListesi() {
         return true;
       });
     }
+    // Arama
     const q = ara.trim().toLowerCase();
     if (q) {
       base = base.filter((x) => {
-        const m = x.musteri ?? {};
+        const canliMusteri = (x.musteriId && musteriMap[String(x.musteriId)])
+          ? musteriMap[String(x.musteriId)]
+          : (x.musteri ?? {});
         const hedef = [
-          m.firmaAdi, m.yetkili, m.telefon, m.adres,
+          canliMusteri.firmaAdi,
+          canliMusteri.yetkili,
+          canliMusteri.telefon,
+          canliMusteri.adres,
           ...(x.urunler?.map((u: any) => u.urunAdi) || [])
         ].filter(Boolean).map((s: string) => s.toLowerCase());
         return hedef.some((s: string) => s.includes(q));
@@ -92,7 +118,7 @@ export default function SiparisListesi() {
     });
     const toplam = sirali.reduce((t, r) => t + Number(r.brutTutar ?? 0), 0);
     return { liste: sirali, toplamBrut: toplam };
-  }, [rows, seciliDurumlar, dateField, from, to, ara]);
+  }, [rows, seciliDurumlar, dateField, from, to, ara, musteriMap]);
 
   /* ---- aksiyonlar ---- */
   async function uretimOnayi(r: any) {
@@ -104,7 +130,10 @@ export default function SiparisListesi() {
   }
 
   async function reddet(r: any) {
-    const musteriAd = r?.musteri?.firmaAdi || r?.musteri?.yetkili || "müşteri";
+    const rawMusteri = (r.musteriId && musteriMap[String(r.musteriId)])
+      ? musteriMap[String(r.musteriId)]
+      : r.musteri;
+    const musteriAd = rawMusteri?.firmaAdi || rawMusteri?.yetkili || "müşteri";
     const mesaj = r.durum === "sevkiyat"
       ? `“${musteriAd}” siparişini reddetmek üzeresiniz.\n\nBu sipariş sevkiyatta: düşülen stoklar iade edilecek.\n\nOnaylıyor musunuz?`
       : `“${musteriAd}” siparişini reddetmek üzeresiniz.\n\nOnaylıyor musunuz?`;
@@ -129,7 +158,10 @@ export default function SiparisListesi() {
   }
 
   async function silOnayi(r: any) {
-    const musteriAd = r?.musteri?.firmaAdi || r?.musteri?.yetkili || "-";
+    const rawMusteri = (r.musteriId && musteriMap[String(r.musteriId)])
+      ? musteriMap[String(r.musteriId)]
+      : r.musteri;
+    const musteriAd = rawMusteri?.firmaAdi || rawMusteri?.yetkili || "-";
     const mesaj = `“${musteriAd}” müşterisine ait bu siparişi kalıcı olarak silmek istediğinizden emin misiniz?\n\nBu işlem geri alınamaz!`;
 
     if (!window.confirm(mesaj)) return;
@@ -153,12 +185,12 @@ export default function SiparisListesi() {
       return next;
     });
   }
-  
+
   // GÜNCELLENDİ: Buton fonksiyonları
   function durumAktif() { setSeciliDurumlar(new Set(["beklemede", "uretimde", "sevkiyat"])); }
   function durumGecmis() { setSeciliDurumlar(new Set(["tamamlandi", "reddedildi"])); }
   function durumHepsi() { setSeciliDurumlar(new Set(DURUMLAR)); }
-  
+
   function filtreSifirla() {
     setSeciliDurumlar(new Set());
     setDateField("islemeTarihi");
@@ -196,12 +228,12 @@ export default function SiparisListesi() {
           <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           <input className="input" placeholder="Ara (müşteri/ürün…)" value={ara} onChange={(e) => setAra(e.target.value)} style={{ width: 260 }} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
-            
+
             {/* GÜNCELLENDİ: Buton Grubu */}
             <button className="theme-btn" type="button" onClick={durumAktif} title="Bekleyen, Üretim, Sevkiyat">Aktif Siparişler</button>
             <button className="theme-btn" type="button" onClick={durumGecmis} title="Tamamlandı, Reddedildi">Geçmiş</button>
             <button className="theme-btn" type="button" onClick={durumHepsi}>Tümü</button>
-            
+
             <button className="theme-btn" type="button" onClick={filtreSifirla}>Sıfırla</button>
           </div>
         </div>
@@ -235,8 +267,12 @@ export default function SiparisListesi() {
 
         <div style={{ display: "grid", gap: 8 }}>
           {liste.map((r: any) => {
+
+            const guncelMusteri = (r.musteriId && musteriMap[String(r.musteriId)])
+              ? musteriMap[String(r.musteriId)]
+              : r.musteri;
+            const musteriAd = guncelMusteri?.firmaAdi || guncelMusteri?.yetkili || "-";
             const stok = stokOk.get(r.docId);
-            const musteriAd = r.musteri?.firmaAdi || r.musteri?.yetkili || "-";
 
             const kapali = r.durum === "tamamlandi" || r.durum === "reddedildi" || r.durum === "sevkiyat";
 
