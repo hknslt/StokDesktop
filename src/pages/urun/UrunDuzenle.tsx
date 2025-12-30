@@ -28,7 +28,7 @@ function parseUrlList(val: string): string[] {
     .filter(Boolean);
 }
 
-// 🔹 Renk doküman tipi
+// Renk doküman tipi
 type RenkDoc = { id: string; ad: string; adLower?: string | null };
 type GrupDoc = { id: string; ad: string; adLower?: string | null };
 

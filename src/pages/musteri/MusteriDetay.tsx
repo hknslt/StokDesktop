@@ -40,7 +40,7 @@ const DURUM_ETIKET: Record<SiparisDurumu, string> = {
 };
 
 export default function MusteriDetay() {
-  const { docId } = useParams(); // müşterinin Firestore docId'si
+  const { docId } = useParams(); 
   const nav = useNavigate();
 
   const [yuk, setYuk] = useState(true);
@@ -86,7 +86,7 @@ export default function MusteriDetay() {
     const qy = query(
       collection(veritabani, "siparisler"),
       where("musteri.id", "==", String(musteri.id)),
-      orderBy("tarih", "desc") // not: ilk seferde index isteyebilir
+      orderBy("tarih", "desc") 
     );
     return onSnapshot(qy, (snap) => {
       const arr: SiparisRow[] = snap.docs.map(d => {

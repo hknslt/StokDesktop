@@ -30,8 +30,8 @@ type Urun = {
 };
 
 type UrunSatir = Urun & {
-  netFiyat?: number; // mevcut (snapshot)
-  draft?: string;    // input metni
+  netFiyat?: number; // veritabanından gelen
+  draft: string;     // ekranda görünen (input)
 };
 
 type SortKey = "ad" | "kod" | "renk" | "fiyat";
@@ -73,7 +73,8 @@ export default function FiyatListesiSayfasi() {
   // --- ürünler + fiyatlar ---
   const [urunler, setUrunler] = useState<Urun[]>([]);
   const [fiyatHaritasi, setFiyatHaritasi] = useState<Record<number, number | undefined>>({});
-  const [satirlar, setSatirlar] = useState<UrunSatir[]>([]);
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+
   const [ara, setAra] = useState("");
 
   // sıralama
@@ -90,7 +91,6 @@ export default function FiyatListesiSayfasi() {
   const [silTotal, setSilTotal] = useState(0);
   const [silDone, setSilDone] = useState(0);
 
-  // Özel silme onay modali
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   // listeleri dinle
@@ -107,7 +107,7 @@ export default function FiyatListesiSayfasi() {
         setSeciliListeId(arr[0].id);
       }
     });
-  }, []); // eslint-disable-line
+  }, []); 
 
   // ürünleri dinle
   useEffect(() => {
@@ -130,6 +130,9 @@ export default function FiyatListesiSayfasi() {
   // seçili listenin fiyatlarını dinle
   useEffect(() => {
     if (!seciliListeId) { setFiyatHaritasi({}); return; }
+    // Liste değişince draftları (inputları) temizle ki yeni listenin fiyatları gelsin
+    setDrafts({});
+
     const col = collection(veritabani, "fiyatListeleri", seciliListeId, "urunFiyatlari");
     return onSnapshot(col, (snap) => {
       const map: Record<number, number> = {};
@@ -143,40 +146,48 @@ export default function FiyatListesiSayfasi() {
     });
   }, [seciliListeId]);
 
-  // satırları birleştir
-  useEffect(() => {
-    const rows: UrunSatir[] = urunler.map(u => ({
-      ...u,
-      netFiyat: fiyatHaritasi[u.id],
-      draft: fiyatHaritasi[u.id] != null ? String(fiyatHaritasi[u.id]) : ""
-    }));
-    setSatirlar(rows);
-  }, [urunler, fiyatHaritasi]);
-
-  // filtre + sıralama
+  // filtre + sıralama + veri birleştirme
   const gorunen = useMemo(() => {
-    const q = ara.trim().toLowerCase();
-    let base = !q
-      ? satirlar
-      : satirlar.filter(s =>
-          [s.urunAdi, s.urunKodu, s.renk]
-            .filter(Boolean)
-            .map(String)
-            .map(v => v.toLowerCase())
-            .some(v => v.includes(q))
-        );
+    // 1. Verileri Birleştir (Veritabanı + Kullanıcı Inputu)
+    let rows: UrunSatir[] = urunler.map(u => {
+      const dbFiyat = fiyatHaritasi[u.id];
+      // Eğer kullanıcı bir şey yazdıysa (drafts) onu göster, yoksa DB'deki fiyatı göster, o da yoksa boş string.
+      const userDraft = drafts[u.id];
+      const displayValue = userDraft !== undefined
+        ? userDraft
+        : (dbFiyat !== undefined ? String(dbFiyat) : "");
 
+      return {
+        ...u,
+        netFiyat: dbFiyat,
+        draft: displayValue
+      };
+    });
+
+    // 2. Filtrele
+    const q = ara.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter(s =>
+        [s.urunAdi, s.urunKodu, s.renk]
+          .filter(Boolean)
+          .map(String)
+          .map(v => v.toLowerCase())
+          .some(v => v.includes(q))
+      );
+    }
+
+    // 3. Sırala
     const fiyatDegeri = (r: UrunSatir): number | undefined =>
       toNumberOrUndefined(r.draft) ?? (Number.isFinite(r.netFiyat as number) ? r.netFiyat : undefined);
 
     const dir = sortDir === "asc" ? 1 : -1;
-    const sorted = [...base].sort((a, b) => {
+    return rows.sort((a, b) => {
       let av: string | number | undefined;
       let bv: string | number | undefined;
 
       switch (sortKey) {
-        case "ad":   av = a.urunAdi;  bv = b.urunAdi;  break;
-        case "kod":  av = a.urunKodu; bv = b.urunKodu; break;
+        case "ad": av = a.urunAdi; bv = b.urunAdi; break;
+        case "kod": av = a.urunKodu; bv = b.urunKodu; break;
         case "renk": av = a.renk ?? ""; bv = b.renk ?? ""; break;
         case "fiyat":
           av = fiyatDegeri(a);
@@ -195,9 +206,7 @@ export default function FiyatListesiSayfasi() {
       const bs = String(bv).toLocaleLowerCase();
       return as === bs ? 0 : (as < bs ? -1 : 1) * dir;
     });
-
-    return sorted;
-  }, [satirlar, ara, sortKey, sortDir]);
+  }, [urunler, fiyatHaritasi, drafts, ara, sortKey, sortDir]); 
 
   async function yeniListeOlustur() {
     if (!yeniAd.trim()) { setDurum("Liste adı gerekli."); return; }
@@ -219,7 +228,7 @@ export default function FiyatListesiSayfasi() {
   }
 
   function setDraft(urunId: number, v: string) {
-    setSatirlar(prev => prev.map(r => r.id === urunId ? { ...r, draft: v } : r));
+    setDrafts(prev => ({ ...prev, [urunId]: v }));
   }
 
   const listeKdvNumber = toNumberOrUndefined(listeKdvDraft);
@@ -231,21 +240,25 @@ export default function FiyatListesiSayfasi() {
   const listeAdiDegisti =
     seciliListe != null && listeAdDraft.trim() !== "" && seciliListe.ad !== listeAdDraft.trim();
 
-  const fiyatDegisiklikVar = useMemo(() => {
-    return satirlar.some(r => {
-      const draftN = toNumberOrUndefined(r.draft);
-      const current = r.netFiyat;
-      if (draftN == null && (current == null || Number.isNaN(current))) return false;
-      return draftN !== current;
-    });
-  }, [satirlar]);
+  // Değişiklik kontrolü
+  const degisiklikVarMi = useMemo(() => {
+    const fiyatDegisti = gorunen.some(r => {
+      const girilen = toNumberOrUndefined(r.draft);
+      const mevcut = r.netFiyat;
 
-  const degisiklikVarMi = fiyatDegisiklikVar || listeDegisti;
+      // İkisi de yoksa değişiklik yok
+      if (girilen == null && (mevcut == null || Number.isNaN(mevcut))) return false;
+      // Biri var biri yoksa veya değerler farklıysa değişiklik var
+      return girilen !== mevcut;
+    });
+    return fiyatDegisti || listeDegisti;
+  }, [gorunen, listeDegisti]);
 
   async function kaydet() {
     if (!seciliListeId) { setDurum("Önce bir liste seçin."); return; }
 
-    const changed = satirlar
+    // Sadece değişenleri bul
+    const changed = gorunen
       .map(r => ({ r, draftN: toNumberOrUndefined(r.draft) }))
       .filter(x => x.draftN !== x.r.netFiyat);
 
@@ -279,16 +292,8 @@ export default function FiyatListesiSayfasi() {
         })
       );
 
-      // optimistic
-      setSatirlar(prev =>
-        prev.map(p => {
-          const hit = changed.find(x => x.r.id === p.id);
-          if (!hit) return p;
-          const nv = hit.draftN;
-          return { ...p, netFiyat: nv, draft: nv == null ? "" : String(nv) };
-        })
-      );
-
+      // Başarılı olunca draftları temizle (Böylece veritabanından gelen güncel veriler görünür)
+      setDrafts({});
       setDurum("Değişiklikler kaydedildi.");
     } catch (e: any) {
       setDurum(e?.message || "Kaydedilemedi.");
@@ -317,18 +322,16 @@ export default function FiyatListesiSayfasi() {
     }
   }
 
-  // SİLME: confirm modalı aç
   function listeyiSilIste() {
     if (!seciliListeId || !seciliListe) return;
     setConfirmOpen(true);
   }
 
-  // SİLME: gerçek işlem
   async function listeyiSilGercek() {
     if (!seciliListeId || !seciliListe) { setConfirmOpen(false); return; }
 
     try {
-      setConfirmOpen(false); // modalı kapat
+      setConfirmOpen(false);
       setSilYapiyor(true);
       setSilTotal(0);
       setSilDone(0);
@@ -336,7 +339,7 @@ export default function FiyatListesiSayfasi() {
 
       const altCol = collection(veritabani, "fiyatListeleri", seciliListeId, "urunFiyatlari");
       const altSnap = await getDocs(altCol);
-      setSilTotal(altSnap.size + 1); // +1 ana doküman
+      setSilTotal(altSnap.size + 1);
       let done = 0;
 
       for (const d of altSnap.docs) {
@@ -360,7 +363,6 @@ export default function FiyatListesiSayfasi() {
   const progressPct = saveTotal > 0 ? Math.round((saveDone / saveTotal) * 100) : 0;
   const delPct = silTotal > 0 ? Math.round((silDone / silTotal) * 100) : 0;
 
-  // **yalnızca gerçek işlemlerde** kilitle
   const globalDisabled = kaydediliyor || silYapiyor;
 
   return (
@@ -375,7 +377,7 @@ export default function FiyatListesiSayfasi() {
           gap: 8,
           alignItems: "center"
         }}>
-          {/* Liste seçimi + Ad düzenle + Sil (YAN YANA) */}
+          {/* Liste seçimi + Ad düzenle + Sil */}
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <label style={{ fontSize: 13, color: "var(--muted)" }}>Seçili liste</label>
             <select
@@ -488,7 +490,6 @@ export default function FiyatListesiSayfasi() {
               type="button"
               onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}
               title="Sıralama Yönü"
-              aria-label="Sıralama yönünü değiştir"
               disabled={globalDisabled}
             >
               {sortDir === "asc" ? "↑ Artan" : "↓ Azalan"}
@@ -537,7 +538,7 @@ export default function FiyatListesiSayfasi() {
                 height: "100%",
                 transition: "width .2s ease",
                 background: "linear-gradient(90deg, var(--ana), var(--ana-2))"
-              }}/>
+              }} />
             </div>
           </div>
         )}
@@ -554,7 +555,7 @@ export default function FiyatListesiSayfasi() {
                 height: "100%",
                 transition: "width .2s ease",
                 background: "linear-gradient(90deg, var(--kirmizi), #ff9aa9)"
-              }}/>
+              }} />
             </div>
           </div>
         )}
@@ -562,7 +563,7 @@ export default function FiyatListesiSayfasi() {
         {durum && <div style={{ opacity: .9 }}>{durum}</div>}
       </div>
 
-      {/* Tablo (ID kolon yok) */}
+      {/* Tablo */}
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Ürün Fiyatları</h3>
 
@@ -604,7 +605,7 @@ export default function FiyatListesiSayfasi() {
               <input
                 className="input"
                 placeholder={r.netFiyat != null ? String(r.netFiyat) : "—"}
-                value={r.draft ?? ""}
+                value={r.draft}
                 onChange={(e) => setDraft(r.id, e.target.value)}
                 inputMode="decimal"
                 disabled={globalDisabled}
@@ -633,7 +634,8 @@ export default function FiyatListesiSayfasi() {
               <button
                 type="button"
                 onClick={listeyiSilGercek}
-                
+                className="theme-btn"
+                style={{ borderColor: "var(--kirmizi)", color: "var(--kirmizi)" }}
               >
                 Evet, Sil
               </button>

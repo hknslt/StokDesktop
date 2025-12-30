@@ -12,36 +12,30 @@ import { Timestamp, DocumentReference, GeoPoint } from "firebase/firestore";
 export function serializeForBackup(input: any): any {
   if (input == null) return input;
 
-  // Firestore Timestamp
   if (input instanceof Timestamp) {
     const ms = input.toMillis();
     return { __t: "ts", ms, iso: new Date(ms).toISOString() };
   }
 
-  // Native Date
   if (input instanceof Date) {
     return { __t: "date", iso: input.toISOString() };
   }
 
-  // DocumentReference (instanceof güvenilir değil, path varlığına bakacağız)
   if (Array.isArray(input)) {
     return input.map((x) => serializeForBackup(x));
   }
 
   if (typeof input === "object") {
-    // Pratik: DocumentReference'lar çoğunlukla {path: "..."} özelliği taşır
     if ("path" in (input as any) && typeof (input as any).path === "string") {
       const ref = input as DocumentReference;
       return { __t: "ref", path: (ref as any).path };
     }
 
-    // GeoPoint
     if ("latitude" in (input as any) && "longitude" in (input as any)) {
       const gp = input as GeoPoint;
       return { __t: "geo", lat: gp.latitude, lng: gp.longitude };
     }
 
-    // Düz obje
     const out: any = {};
     for (const [k, v] of Object.entries(input)) {
       out[k] = serializeForBackup(v);
@@ -49,5 +43,5 @@ export function serializeForBackup(input: any): any {
     return out;
   }
 
-  return input; // string/number/boolean
+  return input; 
 }

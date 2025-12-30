@@ -115,7 +115,6 @@ export default function SiparisOlustur() {
     adres: "",
   });
 
-  // Manuel müşteriyi kayıtlılara kaydetme tiki (varsayılan açık)
   const [manuelKaydet, setManuelKaydet] = useState<boolean>(true);
 
   const musteriEmbed: SiparisMusteri | null = useMemo(() => {
@@ -153,13 +152,14 @@ export default function SiparisOlustur() {
     })();
   }, []);
 
-  async function fiyatGetir(urunId: number, listeId: string) {
+  async function fiyatGetir(urunId: number, fListeId: string) {
+    if (!fListeId) return 0;
     try {
       const snap = await getDoc(
         doc(
           veritabani,
           "fiyatListeleri",
-          listeId,
+          fListeId,
           "urunFiyatlari",
           String(urunId)
         )
@@ -175,15 +175,12 @@ export default function SiparisOlustur() {
     try {
       setFiyatUygulaniyor(true);
 
-      // satırlardaki ürün id'lerini çek
       const uniqIds = Array.from(new Set(satirlar.map(s => Number(s.id))));
-      // her ürün için fiyatı getir
       const idFiyatPairs = await Promise.all(
         uniqIds.map(async (urunId) => [urunId, await fiyatGetir(urunId, listeId)] as const)
       );
       const fiyatMap = new Map<number, number>(idFiyatPairs);
 
-      // satırlara uygula
       setSatirlar((arr) =>
         arr.map((s) => ({
           ...s,
@@ -199,21 +196,15 @@ export default function SiparisOlustur() {
   const [satirlar, setSatirlar] = useState<SiparisSatiri[]>([]);
   const [urunPicker, setUrunPicker] = useState(false);
 
-  // Mevcut urunSec fonksiyonunu bununla değiştir:
+  // Toplu ürün ekleme fonksiyonu
   async function topluUrunEkle(secilenUrunIds: number[]) {
     if (!secilenUrunIds.length || !listeId) return;
 
-    // Yükleniyor durumu ekleyebilirsin istersen setFiyatUygulaniyor(true) gibi
-
-    // Tüm seçilen ürünleri bul
     const eklenecekler = urunler.filter(u => secilenUrunIds.includes(u.id));
-
-    // Hepsinin fiyatını paralel olarak çek
     const fiyatlar = await Promise.all(
       eklenecekler.map(u => fiyatGetir(u.id, listeId))
     );
 
-    // Yeni satırları oluştur
     const yeniSatirlar: SiparisSatiri[] = eklenecekler.map((u, index) => ({
       id: String(u.id),
       urunAdi: u.urunAdi,
@@ -223,8 +214,9 @@ export default function SiparisOlustur() {
     }));
 
     setSatirlar((s) => [...s, ...yeniSatirlar]);
-    setUrunPicker(false); // Modalı kapat
+    setUrunPicker(false);
   }
+
   function satirSil(i: number) {
     setSatirlar((s) => s.filter((_, idx) => idx !== i));
   }
@@ -260,9 +252,10 @@ export default function SiparisOlustur() {
     if (!kaydedilebilir) return;
 
     let embedToUse = musteriEmbed!;
+    // GÜNCELLENDİ: İlişkisel veritabanı için müşteri ID'si
     let kaydedilecekMusteriId: string | number | undefined = undefined;
 
-    // Manuel mod + "kaydet" tiki açık ise önce müşteriyi koleksiyona ekle
+    // SENARYO 1: Manuel mod + "kaydet" tiki AÇIK
     if (!kayitliMi && manuelKaydet) {
       if (!manuel.firmaAdi?.trim() || !manuel.telefon?.trim()) {
         alert("Firma adı ve telefon zorunludur.");
@@ -290,13 +283,20 @@ export default function SiparisOlustur() {
         adres: docData.adres,
       };
 
+      // ID'yi ayarla
       kaydedilecekMusteriId = yeniId;
       setSeciliMusteriId(ref.id);
     }
+    // SENARYO 2: Kayıtlı Müşteri Seçimi
     else if (kayitliMi && seciliMusteri) {
-        kaydedilecekMusteriId = seciliMusteri.id; // <--- Seçili ID'yi al
+      // Seçili müşterinin ID'sini kullan
+      kaydedilecekMusteriId = seciliMusteri.id;
+    }
+    // SENARYO 3: Manuel mod + "kaydet" tiki KAPALI (DÜZELTİLDİ)
+    else if (!kayitliMi && !manuelKaydet) {
     }
 
+    // Siparişi oluştur
     await ekleSiparis({
       musteriId: kaydedilecekMusteriId,
       musteri: embedToUse,
@@ -670,8 +670,6 @@ export default function SiparisOlustur() {
   );
 }
 
-
-
 /* ------------ Yeni Modal Bileşeni ------------ */
 function UrunSeciciModal({
   onClose,
@@ -710,7 +708,6 @@ function UrunSeciciModal({
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setFocusIndex((prev) => Math.min(prev + 1, filtreli.length - 1));
-        // Otomatik scroll işlemi
         document.getElementById(`urun-item-${focusIndex + 1}`)?.scrollIntoView({ block: "nearest" });
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
@@ -723,11 +720,9 @@ function UrunSeciciModal({
         if (u) toggleSelection(u.id);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        // Eğer hiç seçim yapılmadıysa ama Enter'a basıldıysa, o an üstünde durulanı ekle
         if (seciliIds.size === 0 && filtreli[focusIndex]) {
           onConfirm([filtreli[focusIndex].id]);
         } else {
-          // Seçili olanları ekle
           onConfirm(Array.from(seciliIds));
         }
       } else if (e.key === "Escape") {
@@ -737,7 +732,7 @@ function UrunSeciciModal({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [focusIndex, filtreli, seciliIds]); // Dependency'ler önemli
+  }, [focusIndex, filtreli, seciliIds]);
 
   function toggleSelection(id: number) {
     setSeciliIds((prev) => {
@@ -790,13 +785,11 @@ function UrunSeciciModal({
                   padding: "8px 12px",
                   borderRadius: 6,
                   cursor: "pointer",
-                  // Focus ve Seçim Renkleri
                   backgroundColor: isFocused ? "#e3f2fd" : isSelected ? "#f0f9ff" : "white",
                   border: isFocused ? "1px solid #2196f3" : "1px solid transparent",
                   transition: "all 0.1s"
                 }}
               >
-                {/* Checkbox Görünümü */}
                 <div
                   style={{
                     width: 18,

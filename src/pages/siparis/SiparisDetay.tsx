@@ -1,10 +1,10 @@
 // src/sayfalar/siparis/SiparisDetay.tsx
 import { useEffect, useState } from "react";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   guncelleDurum,
-  // sevkiyataGecir, // GÜNCELLENDİ: Silindi
   SiparisDurumu,
   reddetVeIade,
   urunStokDurumHaritasi,
@@ -12,7 +12,6 @@ import {
   sevkiyattanGeriCek,
 } from "../../services/SiparisService";
 import { siparisPdfYazdirWeb } from "../../pdf/siparisPdf";
-import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 
 const ETIKET: Record<SiparisDurumu, string> = {
   beklemede: "Beklemede",
@@ -27,10 +26,11 @@ export default function SiparisDetay() {
   const nav = useNavigate();
   const [yuk, setYuk] = useState(true);
   const [r, setR] = useState<any | null>(null);
+  const [guncelMusteri, setGuncelMusteri] = useState<any>(null);
+
   const [busy, setBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [stokDetaylari, setStokDetaylari] = useState<Map<string, StokDetay>>(new Map());
-  const [guncelMusteri, setGuncelMusteri] = useState<any>(null);
 
   useEffect(() => {
     (async () => {
@@ -42,20 +42,28 @@ export default function SiparisDetay() {
         const data = snap.data() as any;
         const siparis = { ...data, docId: id! };
         setR(siparis);
+        let aktifMusteriData = siparis.musteri;
+        const musteriIdStr = siparis.musteri?.id;
 
-        if (siparis.musteriId) {
-          // Veritabanında ID alanı sayı ise Number(), string ise String() kullan. 
-          // Senin sistemde muhtemelen number tutuyorsun (sonrakiMusteriId fonksiyonundan dolayı)
-          const q = query(collection(veritabani, "musteriler"), where("id", "==", Number(siparis.musteriId)));
-          const mSnap = await getDocs(q);
-          if (!mSnap.empty) {
-            setGuncelMusteri(mSnap.docs[0].data());
-          } else {
-            setGuncelMusteri(siparis.musteri); // Bulamazsa eskisi kalsın
+        if (musteriIdStr) {
+          try {
+            const q = query(
+              collection(veritabani, "musteriler"),
+              where("idNum", "==", Number(musteriIdStr))
+            );
+            const mSnap = await getDocs(q);
+
+            if (!mSnap.empty) {
+              aktifMusteriData = mSnap.docs[0].data();
+            }
+          } catch (err) {
+            console.error("Güncel müşteri bilgisi çekilemedi, eskisi kullanılacak.", err);
           }
-        } else {
-          setGuncelMusteri(siparis.musteri); // ID yoksa (manuel müşteri) eskisi kalsın
         }
+
+        // State'i güncelle
+        setGuncelMusteri(aktifMusteriData);
+        // --------------------------------------------------
 
         if ((siparis.durum === "beklemede" || siparis.durum === "uretimde") && data.urunler?.length) {
           const stokMap = await urunStokDurumHaritasi(siparis.urunler);
@@ -69,10 +77,6 @@ export default function SiparisDetay() {
     })();
   }, [id]);
 
-  // GÜNCELLENDİ: onayla() fonksiyonu artık kullanılmadığı için silindi.
-  // async function onayla() { ... }
-
-  // ... (reddet, tamamla, pdfOlustur, handleGeriCek fonksiyonları aynı kalıyor)
   async function reddet() {
     if (!r) return;
     setBusy(true);
@@ -104,7 +108,8 @@ export default function SiparisDetay() {
     if (!r) return;
     try {
       setPdfBusy(true);
-      await siparisPdfYazdirWeb(r);
+      const siparisVerisi = { ...r, musteri: guncelMusteri };
+      await siparisPdfYazdirWeb(siparisVerisi);
     } catch (e) {
       console.error(e);
       alert("PDF oluşturulamadı.");
@@ -112,6 +117,7 @@ export default function SiparisDetay() {
       setPdfBusy(false);
     }
   }
+
   async function handleGeriCek() {
     if (!r) return;
     const onay = window.confirm(
@@ -147,7 +153,7 @@ export default function SiparisDetay() {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* GÜNCELLENDİ: Başlık ve Butonlar Alanı */}
+      {/* Başlık ve Butonlar Alanı */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h2 style={{ margin: 0 }}>Sipariş Detayı</h2>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -199,12 +205,13 @@ export default function SiparisDetay() {
         </div>
       </div>
 
-      {/* ... (Sayfanın geri kalanı (Müşteri bilgileri, Ürün listesi) aynı) ... */}
       <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div>
           <div style={{ marginBottom: 8 }}>
             <span className={`tag status-${r.durum}`}>{ETIKET[r.durum as SiparisDurumu] ?? r.durum}</span>
           </div>
+
+          {/* GÜNCELLENDİ: Artık r.musteri yerine guncelMusteri kullanıyoruz */}
           <div>
             <b>Müşteri:</b> {guncelMusteri?.firmaAdi} {guncelMusteri?.yetkili ? `• ${guncelMusteri?.yetkili}` : ""}
           </div>
@@ -214,6 +221,8 @@ export default function SiparisDetay() {
           <div>
             <b>Adres:</b> {guncelMusteri?.adres || "-"}
           </div>
+          {/* ------------------------------------------------------------------ */}
+
           <div>
             <b>Tarih:</b> {r.tarih?.toDate?.().toLocaleDateString?.() || "-"}
           </div>
@@ -231,7 +240,7 @@ export default function SiparisDetay() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 120px 110px 110px", // Sütun genişliği güncellendi (SiparisDetay'da zaten 120px idi)
+              gridTemplateColumns: "1fr 120px 110px 110px",
               gap: 8,
               color: "var(--muted)",
               fontSize: 13,
@@ -249,7 +258,7 @@ export default function SiparisDetay() {
 
             const satirStili: React.CSSProperties = {
               display: "grid",
-              gridTemplateColumns: "1fr 120px 110px 110px", // Sütun genişliği güncellendi
+              gridTemplateColumns: "1fr 120px 110px 110px",
               gap: 8,
               border: "1px solid",
               borderRadius: 10,

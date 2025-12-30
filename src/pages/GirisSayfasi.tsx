@@ -41,7 +41,7 @@ export default function GirisSayfasi() {
   const [hata, setHata] = useState<string | null>(null);
   const sifreRef = useRef<HTMLInputElement>(null);
 
-  const [shake, setShake] = useState(false); // hata animasyonu
+  const [shake, setShake] = useState(false); 
 
   useEffect(() => {
     if (hata) {

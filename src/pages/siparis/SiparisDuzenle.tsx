@@ -11,6 +11,7 @@ import {
     onSnapshot,
     getDocs,
     limit,
+    where, 
 } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 import {
@@ -50,7 +51,7 @@ function useUrunler() {
 export default function SiparisDuzenle() {
     const { id } = useParams();
     const nav = useNavigate();
-    const urunler = useUrunler(); // Ürün ekleme modalı için tüm ürünleri çekiyoruz.
+    const urunler = useUrunler(); 
 
     // --- State'ler ---
     const [yuk, setYuk] = useState(true);
@@ -60,7 +61,7 @@ export default function SiparisDuzenle() {
     const [musteri, setMusteri] = useState<SiparisMusteri | null>(null);
     const [satirlar, setSatirlar] = useState<SiparisSatiri[]>([]);
     const [aciklama, setAciklama] = useState("");
-    const [kdvOrani, setKdvOrani] = useState(0); // Siparişin kendi KDV oranı
+    const [kdvOrani, setKdvOrani] = useState(0); 
     const [islemTarih, setIslemTarih] = useState(""); // YYYY-MM-DD
 
     // Fiyat listesi ve ürün seçici için state'ler
@@ -85,8 +86,34 @@ export default function SiparisDuzenle() {
                     return;
                 }
 
-                // State'leri doldur
-                setMusteri(data.musteri);
+                // --- MÜŞTERİ BİLGİSİNİ GÜNCELLEME KISMI (YENİ) ---
+                let guncelMusteriData = data.musteri; 
+                const mIdStr = data.musteri?.id; // "1" gibi string ID
+
+                if (mIdStr) {
+                    try {
+                        // Müşteriler tablosunda idNum ile arama yapıyoruz
+                        const q = query(collection(veritabani, "musteriler"), where("idNum", "==", Number(mIdStr)));
+                        const mSnap = await getDocs(q);
+
+                        if (!mSnap.empty) {
+                            const liveData = mSnap.docs[0].data();
+                            // Bulunan güncel veriyi, siparişin müşteri formatına uyduruyoruz
+                            guncelMusteriData = {
+                                id: mIdStr,
+                                firmaAdi: liveData.firmaAdi,
+                                yetkili: liveData.yetkili,
+                                telefon: liveData.telefon,
+                                adres: liveData.adres
+                            };
+                        }
+                    } catch (error) {
+                        console.error("Müşteri güncel verisi çekilemedi, eski veri kullanılıyor.", error);
+                    }
+                }
+                setMusteri(guncelMusteriData);
+                // ---------------------------------------------------
+
                 setSatirlar(data.urunler || []);
                 setAciklama(data.aciklama || "");
                 setKdvOrani(data.kdvOrani || 0);
@@ -132,7 +159,7 @@ export default function SiparisDuzenle() {
     const kdvTutar = useMemo(() => Math.round(netToplam * kdvOrani) / 100, [netToplam, kdvOrani]);
     const brutToplam = useMemo(() => netToplam + kdvTutar, [netToplam, kdvTutar]);
 
-    // --- Fonksiyonlar (SiparisOlustur'dan taşındı ve uyarlandı) ---
+    // --- Fonksiyonlar ---
 
     const filtreliUrunler = useMemo(() => {
         const q = urunAra.trim().toLowerCase();
@@ -251,13 +278,14 @@ export default function SiparisDuzenle() {
             {/* Adım 1 — Müşteri (Değiştirilemez) */}
             <div className="card">
                 <h3>Müşteri Bilgileri</h3>
+                {/* Burada gösterilen bilgiler veritabanından çekilen GÜNCEL bilgilerdir */}
                 <div><b>Firma Adı:</b> {musteri.firmaAdi}</div>
                 <div><b>Yetkili:</b> {musteri.yetkili || "-"}</div>
                 <div><b>Telefon:</b> {musteri.telefon || "-"}</div>
                 <div><b>Adres:</b> {musteri.adres || "-"}</div>
             </div>
 
-            {/* Adım 2 — Ürünler (SiparisOlustur'dan alındı) */}
+            {/* Adım 2 — Ürünler */}
             <div className="card" style={{ display: "grid", gap: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                     <b>Fiyat Listesi:</b>
@@ -316,7 +344,7 @@ export default function SiparisDuzenle() {
                 <input className="input" placeholder="Açıklama" value={aciklama} onChange={(e) => setAciklama(e.target.value)} />
             </div>
 
-            {/* Ürün seçici modal (SiparisOlustur'dan alındı) */}
+            {/* Ürün seçici modal */}
             {urunPicker && (
                 <div className="modal" onClick={() => setUrunPicker(false)}>
                     <div className="modal-card" onClick={(e) => e.stopPropagation()}>

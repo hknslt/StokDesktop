@@ -12,7 +12,7 @@ export default function MusteriOlustur() {
 
   const [firmaAdi, setFirmaAdi] = useState("");
   const [yetkili, setYetkili] = useState("");
-  const [telefon, setTelefon] = useState("");   // <-- her zaman string sakla
+  const [telefon, setTelefon] = useState("");
   const [adres, setAdres] = useState("");
   const [guncel, setGuncel] = useState(true);
 
@@ -36,17 +36,14 @@ export default function MusteriOlustur() {
       setDurum(null);
 
       const { idNum, idStr } = await getNextId();
-
-      // Belgede hem string id hem numeric idNum yazıyoruz
-      // docId olarak da idStr kullanmak istersen:
       const docId = idStr;
 
       await setDoc(doc(veritabani, "musteriler", docId), {
-        id: idStr,                 // <--- mobile dostu
-        idNum,                     // <--- sağlam sıralama
+        id: idStr,
+        idNum,
         firmaAdi: firmaAdi.trim(),
         yetkili: yetkili.trim() || null,
-        telefon: telefon.trim() || null, // <--- string olarak yaz
+        telefon: telefon.trim() || null, 
         adres: adres.trim() || null,
         guncel: !!guncel,
         createdAt: serverTimestamp(),

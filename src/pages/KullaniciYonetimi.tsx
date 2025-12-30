@@ -106,7 +106,7 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
       await setDoc(doc(veritabani, "users", uid), {
         username: uname,
         usernameLower: unameLower,
-        createdAt: serverTimestamp(), // CF de set ediyor; sorun olmaz
+        createdAt: serverTimestamp(), 
       }, { merge: true });
 
       // 3) Reset mail (opsiyonel)
@@ -149,7 +149,6 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
         console.log("[SIL][cf] result:", r?.data);
       } catch (e: any) {
         console.error("[SIL][cf] error:", e);
-        // Yine de Firestore'u sileceğiz
         setDurum(`Auth silme hatası: ${e?.code || e?.message || "cf-failed"}. Firestore yine silinecek.`);
       }
 

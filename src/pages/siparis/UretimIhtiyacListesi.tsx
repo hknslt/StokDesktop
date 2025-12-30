@@ -87,14 +87,13 @@ export default function UretimIhtiyacListesi() {
         }
     }, [siparislerYuklendi, urunlerYuklendi]);
 
-    // GÜNCELLENDİ: Hesaplama mantığı 'urun.id' ve 'renk' bazlı çalışacak şekilde değiştirildi
     const hesaplananListe = useMemo(() => {
         // Adım 1: Stok ve güncel ürün bilgilerini 'id::renk' anahtarıyla haritala
         const stokMap = new Map<string, number>();
         const urunBilgiMap = new Map<string, { urunAdi: string; renk: string }>();
 
         for (const urun of urunStoklari) {
-            const id = String(urun.id); // Siparişlerdeki ID (string) ile eşleşmesi için
+            const id = String(urun.id); 
             const renkStr = (urun.renk || "").trim();
             const key = `${id}::${renkStr.toLowerCase()}`;
 
@@ -109,15 +108,15 @@ export default function UretimIhtiyacListesi() {
 
         // Adım 2: Siparişlerdeki ihtiyaçları 'id::renk' anahtarıyla topla
         const ihtiyacMap = new Map<string, IhtiyacSatiri>();
-        for (const siparis of siparisler) { // Bunlar zaten 'uretimde' olanlar
+        for (const siparis of siparisler) {
             const musteriAdi = siparis.musteri?.firmaAdi || siparis.musteri?.yetkili || "(Bilinmeyen Müşteri)";
 
             for (const urun of (siparis.urunler || [])) {
-                const id = (urun.id || "").trim(); // Ürün ID'si (string)
-                const eskiAdi = (urun.urunAdi || "").trim(); // Eski (fallback) ad
+                const id = (urun.id || "").trim(); 
+                const eskiAdi = (urun.urunAdi || "").trim(); 
                 const renkStr = (urun.renk || "").trim();
                 const renkKey = renkStr.toLowerCase();
-                const key = `${id}::${renkKey}`; // YENİ ANAHTAR
+                const key = `${id}::${renkKey}`; 
                 const adet = Number(urun.adet || 0);
 
                 if (adet <= 0 || !id) continue;
@@ -126,8 +125,8 @@ export default function UretimIhtiyacListesi() {
                 if (!satir) {
                     satir = {
                         key: key,
-                        urunAdi: eskiAdi || "(Bilinmeyen Ürün)", // Güncel ad bulunamazsa bu kullanılacak
-                        renk: renkStr || "—",                   // Güncel renk bulunamazsa bu kullanılacak
+                        urunAdi: eskiAdi || "(Bilinmeyen Ürün)",
+                        renk: renkStr || "—",                  
                         toplamIstenen: 0,
                         mevcutStok: 0,
                         netIhtiyac: 0,
@@ -150,14 +149,13 @@ export default function UretimIhtiyacListesi() {
         for (const item of liste) {
             const key = item.key;
             const mevcutStok = stokMap.get(key) || 0;
-            const guncelBilgi = urunBilgiMap.get(key); // Güncel adı ve rengi al
+            const guncelBilgi = urunBilgiMap.get(key); 
 
             item.mevcutStok = mevcutStok;
             item.netIhtiyac = item.toplamIstenen - mevcutStok;
 
-            // GÜNCELLEME: Ad ve Rengi 'urunler' koleksiyonundan gelen güncel bilgiyle ez.
             if (guncelBilgi) {
-                item.urunAdi = guncelBilgi.urunAdi; // ÇÖZÜM BURADA
+                item.urunAdi = guncelBilgi.urunAdi;
                 item.renk = guncelBilgi.renk;
             }
 
@@ -165,7 +163,7 @@ export default function UretimIhtiyacListesi() {
         }
 
         return liste;
-    }, [siparisler, urunStoklari]); // Sadece ana veriler değiştiğinde çalışır
+    }, [siparisler, urunStoklari]); 
 
     //Filtreleme ve Sıralama (Bu blok aynı kalır, 'hesaplananListe'yi kullanır)
     const filtreliVeSiraliListe = useMemo(() => {
@@ -196,7 +194,7 @@ export default function UretimIhtiyacListesi() {
         });
 
         return list;
-    }, [hesaplananListe, ara, sirala]); // Arama veya sıralama değiştikçe çalışır
+    }, [hesaplananListe, ara, sirala]); 
 
     if (yukleniyor) {
         return <div className="card">Üretim ihtiyaç listesi hesaplanıyor...</div>;

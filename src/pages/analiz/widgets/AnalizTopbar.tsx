@@ -4,7 +4,7 @@ type Props = {
     grup: Grup;
     setGrup: (g: Grup) => void;
     kombine: boolean;
-    setKombine: (v: boolean) => void; // toggle için fonksiyon
+    setKombine: (v: boolean) => void; 
     toplamCiro: number;
     toplamSiparis: number;
 };

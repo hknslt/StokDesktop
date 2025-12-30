@@ -77,7 +77,7 @@ async function sonrakiSiparisId(): Promise<number> {
 }
 
 export async function ekleSiparis(model: Omit<SiparisModel, "tarih" | "siparisId"> & { tarih?: Timestamp }) {
-  const yeniId = await sonrakiSiparisId(); 
+  const yeniId = await sonrakiSiparisId();
   await addDoc(collection(veritabani, "siparisler"), {
     ...model,
     siparisId: yeniId,
@@ -174,7 +174,7 @@ export async function siparisBolVeSevkEt(
       }
       else {
         const yeniSiparisRef = doc(collection(veritabani, "siparisler"));
-        const yeniSiparisId = await sonrakiSiparisId(); 
+        const yeniSiparisId = await sonrakiSiparisId();
 
         transaction.set(yeniSiparisRef, {
           ...orijinalSiparis,
@@ -190,7 +190,7 @@ export async function siparisBolVeSevkEt(
         transaction.update(orjSiparisRef, {
           urunler: kalanUrunler,
           ...guncelKalanTutar,
-          durum: "uretimde", 
+          durum: "uretimde",
           islemeTarihi: serverTimestamp(),
           aciklama: `Sipariş bölündü. Kalan ürünler.`
         });
@@ -304,7 +304,6 @@ export async function urunStokDurumHaritasi(
 ): Promise<Map<string, StokDetay>> {
   const sonuc = new Map<string, StokDetay>();
   if (!mevcutSiparisUrunleri?.length) return sonuc;
-  // ... (Bu fonksiyonun geri kalanı aynı)
   const q = query(collection(veritabani, "siparisler"), where("durum", "in", ["beklemede", "uretimde"]));
   const tumAktifSiparislerSnap = await getDocs(q);
 

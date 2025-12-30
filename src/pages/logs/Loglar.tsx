@@ -203,7 +203,7 @@ export default function Loglar() {
   }, [rows, q, fAction, fType, fRole, dateFrom, dateTo, desc]);
 
 
-  // ==== TÜMÜNÜ SİL (gerçekten Firestore'dan) ====
+  // ==== TÜMÜNÜ SİL (Firestore'dan) ====
   async function deleteAllLogs() {
     const ok = confirm("TÜM logları silmek istediğine emin misin? Bu işlem geri alınamaz!");
     if (!ok) return;
@@ -211,7 +211,6 @@ export default function Loglar() {
     setOpMsg(null);
     try {
       let total = 0;
-      // Belge ID'sine göre sırala: ts'i olmayan belgeler de gelir
       while (true) {
         const snap = await getDocs(
           query(collection(veritabani, "logs"), orderBy("__name__"), fbLimit(450))
@@ -224,7 +223,6 @@ export default function Loglar() {
       }
       setOpMsg(`${total} log silindi.`);
     } catch (e: any) {
-      // Örn: permission-denied ise burada görünür (admin değilsen)
       setOpMsg(e?.message || "Silme işlemi başarısız oldu. Yetkileri (rules) kontrol edin.");
     } finally {
       setDeleting(false);

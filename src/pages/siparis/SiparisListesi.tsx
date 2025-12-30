@@ -1,3 +1,4 @@
+// src/pages/siparis/SiparisListesi.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
   hepsiDinle,
@@ -36,40 +37,43 @@ const fmtTL = (n: number) =>
 export default function SiparisListesi() {
   const nav = useNavigate();
 
-  // veri
+  // --- Veri ---
   const [rows, setRows] = useState<any[]>([]);
   const [stokOk, setStokOk] = useState<Map<string, boolean | undefined>>(new Map());
+
+  // Müşteri verilerini "ID" anahtarı ile saklayacağımız harita
   const [musteriMap, setMusteriMap] = useState<Record<string, any>>({});
 
-  // filtreler
+  // --- Filtreler ---
   const [ara, setAra] = useState("");
-
   const [seciliDurumlar, setSeciliDurumlar] = useState<Set<SiparisDurumu>>(
     () => new Set(["beklemede", "uretimde", "sevkiyat"])
   );
-
   const [dateField, setDateField] = useState<"tarih" | "islemeTarihi">("islemeTarihi");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-
-  // buton/basit durum
   const [busy, setBusy] = useState<string | null>(null);
 
-
-
-  /* ---- canlı veri ---- */
+  /* 1. CANLI SİPARİŞ DİNLEME */
   useEffect(() => hepsiDinle(async (r) => {
     setRows(r);
     setStokOk(await stokYeterlilikHaritasi(r));
   }), []);
-  /* CANLI MÜŞTERİ DİNLEME */
+
+  /* 2. CANLI MÜŞTERİ DİNLEME */
   useEffect(() => {
     const qy = collection(veritabani, "musteriler");
     const unsub = onSnapshot(qy, (snap) => {
       const harita: Record<string, any> = {};
       snap.docs.forEach((d) => {
         const data = d.data();
-        // ID'yi anahtar olarak kullanıyoruz. Veritabanında ID number ise string'e çeviriyoruz.
+
+        // EŞLEŞTİRME MANTIĞI:
+        // Veritabanında 'idNum' (sayı) veya 'id' (string) olabilir.
+        // Garanti olsun diye her ikisini de string anahtar olarak ekliyoruz.
+        if (data.idNum !== undefined) {
+          harita[String(data.idNum)] = data;
+        }
         if (data.id) {
           harita[String(data.id)] = data;
         }
@@ -79,10 +83,14 @@ export default function SiparisListesi() {
     return () => unsub();
   }, []);
 
-  /* ---- filtre + sıralama + özet ---- */
+  /* ---- Filtreleme + Sıralama + Arama ---- */
   const { liste, toplamBrut } = useMemo(() => {
     const hasStatusFilter = seciliDurumlar.size > 0;
+
+    // 1. Durum filtresi
     let base = rows.filter((x) => !hasStatusFilter || seciliDurumlar.has(x.durum));
+
+    // 2. Tarih filtresi
     const start = from ? new Date(from + "T00:00:00") : null;
     const end = to ? new Date(to + "T23:59:59.999") : null;
     if (start || end) {
@@ -94,33 +102,40 @@ export default function SiparisListesi() {
         return true;
       });
     }
-    // Arama
+
+    // 3. Arama (GÜNCEL İSİM ÜZERİNDEN)
     const q = ara.trim().toLowerCase();
     if (q) {
       base = base.filter((x) => {
-        const canliMusteri = (x.musteriId && musteriMap[String(x.musteriId)])
-          ? musteriMap[String(x.musteriId)]
-          : (x.musteri ?? {});
+        const idKey = String(x.musteri?.id || "");
+        const guncelMusteri = musteriMap[idKey] || x.musteri || {};
+
         const hedef = [
-          canliMusteri.firmaAdi,
-          canliMusteri.yetkili,
-          canliMusteri.telefon,
-          canliMusteri.adres,
+          guncelMusteri.firmaAdi,
+          guncelMusteri.yetkili,
+          guncelMusteri.telefon,
+          guncelMusteri.adres,
           ...(x.urunler?.map((u: any) => u.urunAdi) || [])
         ].filter(Boolean).map((s: string) => s.toLowerCase());
+
         return hedef.some((s: string) => s.includes(q));
       });
     }
+
+    // 4. Sıralama
     const sirali = [...base].sort((a, b) => {
       const da = toDateOrNull(a[dateField])?.getTime() ?? 0;
       const db = toDateOrNull(b[dateField])?.getTime() ?? 0;
       return db - da;
     });
+
     const toplam = sirali.reduce((t, r) => t + Number(r.brutTutar ?? 0), 0);
     return { liste: sirali, toplamBrut: toplam };
+
   }, [rows, seciliDurumlar, dateField, from, to, ara, musteriMap]);
 
-  /* ---- aksiyonlar ---- */
+  /* ---- Aksiyonlar ---- */
+
   async function uretimOnayi(r: any) {
     setBusy(r.docId);
     try {
@@ -130,14 +145,16 @@ export default function SiparisListesi() {
   }
 
   async function reddet(r: any) {
-    const rawMusteri = (r.musteriId && musteriMap[String(r.musteriId)])
-      ? musteriMap[String(r.musteriId)]
-      : r.musteri;
+    const idKey = String(r.musteri?.id || "");
+    const rawMusteri = musteriMap[idKey] || r.musteri;
     const musteriAd = rawMusteri?.firmaAdi || rawMusteri?.yetkili || "müşteri";
+
     const mesaj = r.durum === "sevkiyat"
       ? `“${musteriAd}” siparişini reddetmek üzeresiniz.\n\nBu sipariş sevkiyatta: düşülen stoklar iade edilecek.\n\nOnaylıyor musunuz?`
       : `“${musteriAd}” siparişini reddetmek üzeresiniz.\n\nOnaylıyor musunuz?`;
+
     if (!window.confirm(mesaj)) return;
+
     setBusy(r.docId);
     try {
       if (r.durum === "sevkiyat") {
@@ -158,10 +175,10 @@ export default function SiparisListesi() {
   }
 
   async function silOnayi(r: any) {
-    const rawMusteri = (r.musteriId && musteriMap[String(r.musteriId)])
-      ? musteriMap[String(r.musteriId)]
-      : r.musteri;
+    const idKey = String(r.musteri?.id || "");
+    const rawMusteri = musteriMap[idKey] || r.musteri;
     const musteriAd = rawMusteri?.firmaAdi || rawMusteri?.yetkili || "-";
+
     const mesaj = `“${musteriAd}” müşterisine ait bu siparişi kalıcı olarak silmek istediğinizden emin misiniz?\n\nBu işlem geri alınamaz!`;
 
     if (!window.confirm(mesaj)) return;
@@ -177,7 +194,7 @@ export default function SiparisListesi() {
     }
   }
 
-  /* ---- durum chipleri ---- */
+  /* ---- Durum Butonları ---- */
   function toggleDurum(d: SiparisDurumu) {
     setSeciliDurumlar(prev => {
       const next = new Set(prev);
@@ -186,7 +203,7 @@ export default function SiparisListesi() {
     });
   }
 
-  // GÜNCELLENDİ: Buton fonksiyonları
+  // Buton grupları
   function durumAktif() { setSeciliDurumlar(new Set(["beklemede", "uretimde", "sevkiyat"])); }
   function durumGecmis() { setSeciliDurumlar(new Set(["tamamlandi", "reddedildi"])); }
   function durumHepsi() { setSeciliDurumlar(new Set(DURUMLAR)); }
@@ -227,16 +244,15 @@ export default function SiparisListesi() {
           <span style={{ opacity: .7 }}>—</span>
           <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           <input className="input" placeholder="Ara (müşteri/ürün…)" value={ara} onChange={(e) => setAra(e.target.value)} style={{ width: 260 }} />
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
 
-            {/* GÜNCELLENDİ: Buton Grubu */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
             <button className="theme-btn" type="button" onClick={durumAktif} title="Bekleyen, Üretim, Sevkiyat">Aktif Siparişler</button>
             <button className="theme-btn" type="button" onClick={durumGecmis} title="Tamamlandı, Reddedildi">Geçmiş</button>
             <button className="theme-btn" type="button" onClick={durumHepsi}>Tümü</button>
-
             <button className="theme-btn" type="button" onClick={filtreSifirla}>Sıfırla</button>
           </div>
         </div>
+
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {DURUMLAR.map((d) => {
             const aktif = seciliDurumlar.has(d);
@@ -268,12 +284,16 @@ export default function SiparisListesi() {
         <div style={{ display: "grid", gap: 8 }}>
           {liste.map((r: any) => {
 
-            const guncelMusteri = (r.musteriId && musteriMap[String(r.musteriId)])
-              ? musteriMap[String(r.musteriId)]
-              : r.musteri;
-            const musteriAd = guncelMusteri?.firmaAdi || guncelMusteri?.yetkili || "-";
-            const stok = stokOk.get(r.docId);
+            // --- CANLI VERİ EŞLEŞTİRME ---
+            const idKey = String(r.musteri?.id || "");
 
+            // Haritada varsa onu kullan, yoksa siparişin içindeki eski veriyi kullan
+            const guncelMusteri = musteriMap[idKey] || r.musteri;
+
+            const musteriAd = guncelMusteri?.firmaAdi || guncelMusteri?.yetkili || "-";
+            // -----------------------------
+
+            const stok = stokOk.get(r.docId);
             const kapali = r.durum === "tamamlandi" || r.durum === "reddedildi" || r.durum === "sevkiyat";
 
             const dotColor = kapali ? "var(--muted)" : (stok === false ? "var(--kirmizi)" : "var(--yesil)");
@@ -297,9 +317,11 @@ export default function SiparisListesi() {
                 <div title={dotTitle}>
                   <div style={{ width: 10, height: 10, borderRadius: 999, background: dotColor, opacity: dotOpacity }} />
                 </div>
+
                 <div style={{ cursor: "pointer" }} onClick={() => nav(`/siparis/${r.docId}`)}>
                   <b>{musteriAd}</b>
                 </div>
+
                 <div>
                   <span className={`tag status-${r.durum}`}>{ETIKET[r.durum as SiparisDurumu] ?? r.durum}</span>
                 </div>

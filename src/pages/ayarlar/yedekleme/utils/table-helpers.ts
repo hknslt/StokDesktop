@@ -6,16 +6,14 @@ export function flatten(obj: any, prefix = "", out: Record<string, any> = {}) {
   for (const [k, v] of Object.entries(obj)) {
     const key = prefix ? `${prefix}.${k}` : k;
     if (Array.isArray(v)) {
-      // Kayıpsız: her zaman JSON string
       out[key] = JSON.stringify(v);
     } else if (v instanceof Date) {
       out[key] = v.toISOString();
     } else if (v instanceof Timestamp) {
       out[key] = new Date(v.toMillis()).toISOString();
     } else if (v && typeof v === "object") {
-      // DocumentReference / GeoPoint gibi tipleri stringleştir
       if ("path" in (v as any) && typeof (v as any).path === "string") {
-        out[key] = (v as any).path; // DocumentReference -> path
+        out[key] = (v as any).path;
       } else if ("latitude" in (v as any) && "longitude" in (v as any)) {
         out[key] = JSON.stringify({
           lat: (v as any).latitude,

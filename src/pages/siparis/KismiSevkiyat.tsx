@@ -1,7 +1,7 @@
 // src/sayfalar/siparis/KismiSevkiyat.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 import {
     SiparisSatiri,
@@ -35,8 +35,9 @@ export default function KismiSevkiyat() {
     const nav = useNavigate();
 
     const [siparis, setSiparis] = useState<(SiparisModel & { docId: string }) | null>(null);
-    const [sevkListesi, setSevkListesi] = useState<SevkSatiri[]>([]);
+    const [guncelMusteri, setGuncelMusteri] = useState<any>(null);
 
+    const [sevkListesi, setSevkListesi] = useState<SevkSatiri[]>([]);
     const [yukleniyor, setYukleniyor] = useState(true);
     const [busy, setBusy] = useState(false);
     const [durum, setDurum] = useState("");
@@ -51,6 +52,7 @@ export default function KismiSevkiyat() {
         async function veriGetir() {
             setYukleniyor(true);
             try {
+                // 1. Siparişi Çek
                 const snap = await getDoc(doc(veritabani, "siparisler", id!));
                 if (!snap.exists()) {
                     setDurum("Sipariş bulunamadı.");
@@ -68,6 +70,22 @@ export default function KismiSevkiyat() {
 
                 const mevcutSiparis = { ...data, docId: id! };
                 setSiparis(mevcutSiparis);
+                let aktifMusteri = data.musteri;
+                const mIdStr = data.musteri?.id; 
+
+                if (mIdStr) {
+                    try {
+                        const q = query(collection(veritabani, "musteriler"), where("idNum", "==", Number(mIdStr)));
+                        const mSnap = await getDocs(q);
+                        if (!mSnap.empty) {
+                            aktifMusteri = mSnap.docs[0].data() as any; 
+                        }
+                    } catch (e) {
+                        console.error("Müşteri güncel verisi çekilemedi", e);
+                    }
+                }
+                setGuncelMusteri(aktifMusteri);
+                // -----------------------------------------------
 
                 const stokMap = await urunStokDurumHaritasi(mevcutSiparis.urunler);
 
@@ -141,6 +159,8 @@ export default function KismiSevkiyat() {
 
     async function onaylaVeBol() {
         if (!siparis) return;
+
+
         if (toplamSevkEdilecek === 0 && toplamKalan === 0 && siparis.urunler.length > 0) {
             alert("Listede ürün yok veya adetler 0.");
             return;
@@ -207,18 +227,19 @@ export default function KismiSevkiyat() {
                 </Link>
             </div>
 
-            {/* GÜNCELLENDİ: Müşteri Bilgileri Kartı */}
+            {/* GÜNCELLENDİ: Müşteri Bilgileri Kartı - Güncel Veri Kullanımı */}
             <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
                     <div>
-                        <b>Müşteri:</b> {siparis.musteri?.firmaAdi}
-                        {siparis.musteri?.yetkili ? ` • ${siparis.musteri?.yetkili}` : ""}
+                        {/* siparis.musteri yerine guncelMusteri kullanıyoruz */}
+                        <b>Müşteri:</b> {guncelMusteri?.firmaAdi}
+                        {guncelMusteri?.yetkili ? ` • ${guncelMusteri?.yetkili}` : ""}
                     </div>
-                    {siparis.musteri?.telefon && (
-                        <div><b>Tel:</b> {siparis.musteri.telefon}</div>
+                    {guncelMusteri?.telefon && (
+                        <div><b>Tel:</b> {guncelMusteri.telefon}</div>
                     )}
-                    {siparis.musteri?.adres && (
-                        <div><b>Adres:</b> {siparis.musteri.adres}</div>
+                    {guncelMusteri?.adres && (
+                        <div><b>Adres:</b> {guncelMusteri.adres}</div>
                     )}
                 </div>
                 <div>

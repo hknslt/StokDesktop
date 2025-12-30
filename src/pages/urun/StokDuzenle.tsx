@@ -21,7 +21,6 @@ export default function StokDuzenle() {
   const [rows, setRows] = useState<Urun[]>([]);
   const [ara, setAra] = useState("");
 
-  // 🔽 yeni: sıralama & stoğu olmayanlar filtresi
   const [sirala, setSirala] = useState<"az" | "za">("az");
   const [sifirStok, setSifirStok] = useState(false);
 

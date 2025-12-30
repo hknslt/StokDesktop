@@ -96,16 +96,14 @@ export default function YedeklemeTab() {
         setAlanlar(keys);
         setSeciliAlanlar(new Set(keys));
         setDurum(`Stok Dağılımı için ${rows.length} grup hesaplandı.`);
-        return; // Özel işlem bittiği için fonksiyondan çık
+        return;
       }
-
-      // ESKİ MANTIK: Diğer tüm seçimler için doğrudan koleksiyonu yükle
       const snap = await getDocs(collection(veritabani, etkinYol));
-      const rows = snap.docs.map((d) => ({ ...d.data(), docId: d.id })); // docId eklendi
+      const rows = snap.docs.map((d) => ({ ...d.data(), docId: d.id })); 
       setTumSatirlar(rows);
 
       const keys = new Set<string>();
-      keys.add("docId"); // docId her zaman başta olsun
+      keys.add("docId");
       for (const r of rows) {
         const flat = flatten(r);
         Object.keys(flat).forEach((k) => keys.add(k));
@@ -124,7 +122,7 @@ export default function YedeklemeTab() {
 
   function filtreliFlatRows() {
     const selected = seciliAlanlar.size ? Array.from(seciliAlanlar) : alanlar;
-    const keys = Array.from(new Set([...selected])); // id yok
+    const keys = Array.from(new Set([...selected])); 
     const out: Record<string, any>[] = [];
     for (const r of tumSatirlar) {
       const flat = flatten(r);
@@ -141,7 +139,7 @@ export default function YedeklemeTab() {
     }
     try {
       setYuk("json");
-      const safe = tumSatirlar.map((r) => serializeForBackup(r)); // id yok
+      const safe = tumSatirlar.map((r) => serializeForBackup(r)); 
 
       const fname =
         manualFileName || `${safeName(etkinYol)}__${fmtTime(new Date())}.json`;
@@ -166,7 +164,6 @@ export default function YedeklemeTab() {
     }
   }
 
-  // CSV: id YOK, iç içe alanlar tek hücrede JSON string
   function exportCSV() {
     if (!tumSatirlar.length) {
       setDurum("Önce verileri yükleyin.");
@@ -175,7 +172,7 @@ export default function YedeklemeTab() {
     try {
       setYuk("csv");
       const rows = filtreliFlatRows();
-      const headers = Array.from(new Set([...seciliAlanlar])); // id yok
+      const headers = Array.from(new Set([...seciliAlanlar]));
       const csv = toCSV(rows, headers);
       downloadBlob(
         `${safeName(etkinYol)}__${fmtTime(new Date())}.csv`,
@@ -188,7 +185,6 @@ export default function YedeklemeTab() {
     }
   }
 
-  // XLSX: id YOK
   async function exportXLSX() {
     if (!tumSatirlar.length) {
       setDurum("Önce verileri yükleyin.");

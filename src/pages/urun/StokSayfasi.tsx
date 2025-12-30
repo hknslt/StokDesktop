@@ -354,7 +354,7 @@ export default function StokSayfasi() {
     }
 
     async function urunSil(u: Urun) {
-        if (silinenId != null) return; // bir silme işlemi varken engelle
+        if (silinenId != null) return; 
         const onay = window.confirm(
             `Bu ürünü silmek istediğinize emin misiniz?\n\nAd: ${u.urunAdi}\nKod: ${u.urunKodu}\n\nÜrün ve görselleri silinecek.`
         );

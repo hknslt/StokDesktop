@@ -174,7 +174,7 @@ export default function UrunDetay() {
                   style={{
                     width: "100%",
                     height: "100%",
-                    objectFit: "contain",   // tamamı görünsün
+                    objectFit: "contain",   
                     objectPosition: "center",
                     cursor: "zoom-in",
                     display: "block",
@@ -356,7 +356,7 @@ function ButonOk({
   yon: "left" | "right";
   onClick: () => void;
   boyut?: "md" | "lg";
-  icZindex?: boolean; // lightbox içinde üstte kalsın
+  icZindex?: boolean; 
 }) {
   const w = boyut === "lg" ? 54 : 44;
   const fs = boyut === "lg" ? 28 : 22;

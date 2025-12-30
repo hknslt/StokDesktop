@@ -150,7 +150,6 @@ export default function MusteriListesi() {
           {gorunen.map((r) => (
             <div
               key={r.docId}
-              // title KALDIRILDI: adres artık tooltip olarak görünmeyecek
               style={{
                 display: "grid",
                 gridTemplateColumns: "1.4fr 1fr 1fr 160px 160px",

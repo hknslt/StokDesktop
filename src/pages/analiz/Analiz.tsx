@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 
-// Diğer dosyalardan import
 import {
     AktifListe, Grup, SiparisRow, Urun,
     getJSDate, keyOfDate, makeBuckets
