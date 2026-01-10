@@ -10,7 +10,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
-  addDoc,
+  setDoc, // GÜNCELLENDİ: setDoc eklendi (ID'yi biz belirleyeceğiz)
 } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 import {
@@ -23,6 +23,11 @@ import { Link, useNavigate } from "react-router-dom";
 /* ------------ kaynaklar ------------ */
 type Urun = { id: number; urunAdi: string; urunKodu: string; renk?: string };
 type FiyatListe = { id: string; ad: string; kdv: number };
+
+// YENİ: ID Formatlama Fonksiyonu (MusteriOlustur'dan alındı)
+function pad6(n: number) {
+  return String(n).padStart(6, "0");
+}
 
 function useUrunler() {
   const [list, setList] = useState<Urun[]>([]);
@@ -67,8 +72,8 @@ export default function SiparisOlustur() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [fiyatUygulaniyor, setFiyatUygulaniyor] = useState(false);
 
-
   useEffect(() => {
+    // Listelerken idNum'a göre sıralamak daha sağlıklı olur ama mevcut yapıyı bozmadım
     const qy = query(
       collection(veritabani, "musteriler"),
       orderBy("id", "asc")
@@ -79,7 +84,7 @@ export default function SiparisOlustur() {
           const x = d.data() as any;
           return {
             docId: d.id,
-            id: Number(x.id ?? d.id),
+            id: Number(x.idNum ?? x.id ?? 0), // idNum varsa onu al
             firmaAdi: String(x.firmaAdi ?? ""),
             yetkili: x.yetkili || "",
             telefon: x.telefon || "",
@@ -192,7 +197,6 @@ export default function SiparisOlustur() {
     }
   }
 
-
   const [satirlar, setSatirlar] = useState<SiparisSatiri[]>([]);
   const [urunPicker, setUrunPicker] = useState(false);
 
@@ -235,16 +239,20 @@ export default function SiparisOlustur() {
 
   const kaydedilebilir = !!musteriEmbed && satirlar.length > 0;
 
-  // --- Yardımcı: bir sonraki müşteri id'si ---
-  async function sonrakiMusteriId(): Promise<number> {
+  // --- YENİ: ID Hesaplama Fonksiyonu (MusteriOlustur.tsx ile aynı mantık) ---
+  async function sonrakiMusteriId(): Promise<{ idNum: number; idStr: string }> {
     const qy = query(
       collection(veritabani, "musteriler"),
-      orderBy("id", "desc"),
+      orderBy("idNum", "desc"), // id yerine idNum'a göre sırala
       limit(1)
     );
     const snap = await getDocs(qy);
-    const lastId = snap.docs.length ? Number(snap.docs[0].data().id ?? 0) : 0;
-    return (isFinite(lastId) ? lastId : 0) + 1;
+
+    // Eğer kayıt varsa son idNum'ı al, yoksa 0 al
+    const lastNum = snap.empty ? 0 : Number((snap.docs[0].data() as any).idNum || 0);
+    const next = (isNaN(lastNum) ? 0 : lastNum) + 1;
+
+    return { idNum: next, idStr: pad6(next) };
   }
 
   // --- Kaydet ---
@@ -252,7 +260,6 @@ export default function SiparisOlustur() {
     if (!kaydedilebilir) return;
 
     let embedToUse = musteriEmbed!;
-    // GÜNCELLENDİ: İlişkisel veritabanı için müşteri ID'si
     let kaydedilecekMusteriId: string | number | undefined = undefined;
 
     // SENARYO 1: Manuel mod + "kaydet" tiki AÇIK
@@ -262,38 +269,41 @@ export default function SiparisOlustur() {
         return;
       }
 
-      const yeniId = await sonrakiMusteriId();
+      // 1. Yeni ID'yi hesapla (MusteriOlustur ile aynı mantık)
+      const { idNum, idStr } = await sonrakiMusteriId();
+
+      // 2. Veriyi hazırla (guncel: true, idNum ve idStr içerir)
       const docData = {
-        id: yeniId,
+        id: idStr,    // String ID ("000001")
+        idNum: idNum, // Sayısal ID (1)
         firmaAdi: manuel.firmaAdi.trim(),
-        yetkili: manuel.yetkili?.trim() || "",
-        telefon: manuel.telefon?.trim() || "",
-        adres: manuel.adres?.trim() || "",
+        yetkili: manuel.yetkili?.trim() || null,
+        telefon: manuel.telefon?.trim() || null,
+        adres: manuel.adres?.trim() || null,
+        guncel: true,
         createdAt: serverTimestamp(),
       };
 
-      const ref = await addDoc(collection(veritabani, "musteriler"), docData);
+      // 3. Belgeyi 'idStr' adıyla kaydet (setDoc kullanarak)
+      // Bu sayede belge ID'si de "000001" olur.
+      const ref = doc(veritabani, "musteriler", idStr);
+      await setDoc(ref, docData);
 
-      // Sipariş embed'ini yeni kayıtla senkronla
+      // 4. Sipariş içine gömülecek veriyi hazırla
       embedToUse = {
-        id: String(yeniId),
+        id: String(idNum), // Sipariş içinde ID genelde sayısal tutuluyor referans için
         firmaAdi: docData.firmaAdi,
-        yetkili: docData.yetkili,
-        telefon: docData.telefon,
-        adres: docData.adres,
+        yetkili: docData.yetkili || "",
+        telefon: docData.telefon || "",
+        adres: docData.adres || "",
       };
 
-      // ID'yi ayarla
-      kaydedilecekMusteriId = yeniId;
-      setSeciliMusteriId(ref.id);
+      kaydedilecekMusteriId = idNum;
+      setSeciliMusteriId(idStr); // UI güncellemesi için DocID kullan
     }
     // SENARYO 2: Kayıtlı Müşteri Seçimi
     else if (kayitliMi && seciliMusteri) {
-      // Seçili müşterinin ID'sini kullan
       kaydedilecekMusteriId = seciliMusteri.id;
-    }
-    // SENARYO 3: Manuel mod + "kaydet" tiki KAPALI (DÜZELTİLDİ)
-    else if (!kayitliMi && !manuelKaydet) {
     }
 
     // Siparişi oluştur
@@ -318,6 +328,7 @@ export default function SiparisOlustur() {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {/* ... (JSX kısmı tamamen aynı kalıyor) ... */}
       <div
         style={{
           display: "flex",
@@ -421,7 +432,6 @@ export default function SiparisOlustur() {
               onChange={(e) => setManuel({ ...manuel, adres: e.target.value })}
             />
 
-            {/* Manuel müşteriyi kaydet tiki */}
             <div
               style={{
                 gridColumn: "1 / -1",
@@ -490,7 +500,7 @@ export default function SiparisOlustur() {
             style={{
               display: "grid",
               gridTemplateColumns:
-                "1fr 120px 90px 110px 110px 80px", // Ürün | Renk | Adet | Net Birim | Net Satır | Sil
+                "1fr 120px 90px 110px 110px 80px",
               gap: 8,
               color: "var(--muted)",
               fontSize: 13,
@@ -522,7 +532,6 @@ export default function SiparisOlustur() {
                 <b>{s.urunAdi}</b>
               </div>
 
-              {/* Renk gösterimi */}
               <div>
                 {s.renk ? (
                   <span
@@ -670,7 +679,7 @@ export default function SiparisOlustur() {
   );
 }
 
-/* ------------ Yeni Modal Bileşeni ------------ */
+// Modal bileşeni (aynı kalıyor)
 function UrunSeciciModal({
   onClose,
   onConfirm,
@@ -684,7 +693,6 @@ function UrunSeciciModal({
   const [seciliIds, setSeciliIds] = useState<Set<number>>(new Set());
   const [focusIndex, setFocusIndex] = useState(0);
 
-  // Arama filtresi
   const filtreli = useMemo(() => {
     const q = ara.trim().toLowerCase();
     if (!q) return urunler;
@@ -697,12 +705,10 @@ function UrunSeciciModal({
     );
   }, [urunler, ara]);
 
-  // Arama değişince focus'u sıfırla
   useEffect(() => {
     setFocusIndex(0);
   }, [ara]);
 
-  // Klavye Kontrolü
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "ArrowDown") {
@@ -714,7 +720,6 @@ function UrunSeciciModal({
         setFocusIndex((prev) => Math.max(prev - 1, 0));
         document.getElementById(`urun-item-${focusIndex - 1}`)?.scrollIntoView({ block: "nearest" });
       } else if (e.key === " ") {
-        // Space tuşu: Seçimi değiştir (Toggle)
         e.preventDefault();
         const u = filtreli[focusIndex];
         if (u) toggleSelection(u.id);
