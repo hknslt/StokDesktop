@@ -1,3 +1,4 @@
+// src/pages/musteri/MusteriDetay.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
   collection,
@@ -40,7 +41,7 @@ const DURUM_ETIKET: Record<SiparisDurumu, string> = {
 };
 
 export default function MusteriDetay() {
-  const { docId } = useParams(); 
+  const { docId } = useParams();
   const nav = useNavigate();
 
   const [yuk, setYuk] = useState(true);
@@ -86,7 +87,7 @@ export default function MusteriDetay() {
     const qy = query(
       collection(veritabani, "siparisler"),
       where("musteri.id", "==", String(musteri.id)),
-      orderBy("tarih", "desc") 
+      orderBy("tarih", "desc")
     );
     return onSnapshot(qy, (snap) => {
       const arr: SiparisRow[] = snap.docs.map(d => {
@@ -106,12 +107,16 @@ export default function MusteriDetay() {
     });
   }, [musteri?.id]);
 
-  // 3) Özet metrikler
+  // 3) Özet metrikler (GÜNCELLENDİ: Reddedilenleri hariç tut)
   const toplamSiparis = siparisler.length;
-  const toplamBrut = useMemo(
-    () => siparisler.reduce((t, s) => t + Number(s.brutTutar || 0), 0),
-    [siparisler]
-  );
+
+  const toplamBrut = useMemo(() => {
+    return siparisler.reduce((t, s) => {
+      // Eğer sipariş reddedildiyse toplama ekleme
+      if (s.durum === "reddedildi") return t;
+      return t + Number(s.brutTutar || 0);
+    }, 0);
+  }, [siparisler]);
 
   if (yuk) return <div className="card">Yükleniyor…</div>;
   if (!musteri) return <div className="card">{durum || "Müşteri bulunamadı."}</div>;
@@ -165,7 +170,7 @@ export default function MusteriDetay() {
             <div style={{ fontSize: 24, fontWeight: 800 }}>{toplamSiparis.toLocaleString()}</div>
           </div>
           <div className="card" style={{ padding: 12 }}>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>Toplam Brüt</div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>Toplam Brüt (Aktif)</div>
             <div style={{ fontSize: 24, fontWeight: 800 }}>{Number(toplamBrut).toLocaleString()}</div>
           </div>
         </div>
@@ -205,6 +210,8 @@ export default function MusteriDetay() {
                 border: "1px solid var(--panel-bdr)",
                 borderRadius: 10,
                 padding: "8px 10px",
+                // Reddedilen siparişleri biraz soluk gösterelim ki hesaba katılmadığı belli olsun (isteğe bağlı)
+                opacity: s.durum === "reddedildi" ? 0.6 : 1
               }}
             >
               <div>
@@ -217,7 +224,11 @@ export default function MusteriDetay() {
 
               <div>{s.tarih?.toDate?.().toLocaleDateString?.() || "-"}</div>
               <div>{s.islemeTarihi?.toDate?.().toLocaleDateString?.() || "-"}</div>
-              <div>{Number(s.brutTutar || 0).toLocaleString()}</div>
+
+              {/* Eğer reddedildiyse tutarın üstünü çizebiliriz görsel olarak, ama şart değil */}
+              <div style={{ textDecoration: s.durum === "reddedildi" ? "line-through" : "none" }}>
+                {Number(s.brutTutar || 0).toLocaleString()}
+              </div>
             </div>
           ))}
 
