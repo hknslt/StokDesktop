@@ -42,6 +42,36 @@ export default function KismiSevkiyat() {
     const [busy, setBusy] = useState(false);
     const [durum, setDurum] = useState("");
 
+    // ==========================================
+    // --- ÖZEL MODAL (ALERT/CONFIRM) YAPISI ---
+    // ==========================================
+    const [modal, setModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        isConfirm: boolean;
+        onConfirm?: () => void;
+        onClose?: () => void;
+    }>({
+        isOpen: false,
+        title: "",
+        message: "",
+        isConfirm: false,
+    });
+
+    const showAlert = (message: string, title = "Bilgi", onClose?: () => void) => {
+        setModal({ isOpen: true, title, message, isConfirm: false, onClose });
+    };
+
+    const showConfirm = (message: string, onConfirm: () => void, title = "Onay Gerekli") => {
+        setModal({ isOpen: true, title, message, isConfirm: true, onConfirm });
+    };
+
+    const closeModal = () => {
+        setModal(prev => ({ ...prev, isOpen: false }));
+    };
+    // ==========================================
+
     // Sipariş ve Stok bilgilerini yükle
     useEffect(() => {
         if (!id) {
@@ -63,22 +93,22 @@ export default function KismiSevkiyat() {
                 const data = snap.data() as SiparisModel;
 
                 if (data.durum !== 'beklemede' && data.durum !== 'uretimde') {
-                    alert("Sadece 'Beklemede' veya 'Üretimde' olan siparişler için sevkiyat onayı verilebilir.");
-                    nav(`/siparis/${id}`);
+                    setYukleniyor(false);
+                    showAlert("Sadece 'Beklemede' veya 'Üretimde' olan siparişler için sevkiyat onayı verilebilir.", "Uyarı", () => nav(`/siparis/${id}`));
                     return;
                 }
 
                 const mevcutSiparis = { ...data, docId: id! };
                 setSiparis(mevcutSiparis);
                 let aktifMusteri = data.musteri;
-                const mIdStr = data.musteri?.id; 
+                const mIdStr = data.musteri?.id;
 
                 if (mIdStr) {
                     try {
                         const q = query(collection(veritabani, "musteriler"), where("idNum", "==", Number(mIdStr)));
                         const mSnap = await getDocs(q);
                         if (!mSnap.empty) {
-                            aktifMusteri = mSnap.docs[0].data() as any; 
+                            aktifMusteri = mSnap.docs[0].data() as any;
                         }
                     } catch (e) {
                         console.error("Müşteri güncel verisi çekilemedi", e);
@@ -157,56 +187,58 @@ export default function KismiSevkiyat() {
         return { toplamSevkEdilecek: toplamSevk, toplamKalan: toplamKalan };
     }, [sevkListesi]);
 
-    async function onaylaVeBol() {
+    function onaylaVeBol() {
         if (!siparis) return;
 
-
         if (toplamSevkEdilecek === 0 && toplamKalan === 0 && siparis.urunler.length > 0) {
-            alert("Listede ürün yok veya adetler 0.");
+            showAlert("Listede ürün yok veya adetler 0.", "Uyarı");
             return;
         }
+
         if (toplamSevkEdilecek === 0 && toplamKalan > 0) {
-            if (!window.confirm("Hiçbir ürün sevke seçilmedi. Siparişin tamamı 'Üretimde' olarak onaylanacak. Emin misiniz?")) return;
+            showConfirm("Hiçbir ürün sevke seçilmedi. Siparişin tamamı 'Üretimde' olarak onaylanacak. Emin misiniz?", async () => {
+                setBusy(true);
+                setDurum("Sipariş üretime alınıyor...");
+                try {
+                    await guncelleDurum(siparis.docId, "uretimde", { islemeTarihiniAyarla: true });
+                    showAlert("Sipariş üretime alındı.", "Başarılı", () => nav("/siparisler"));
+                } catch (e: any) {
+                    showAlert("Hata: " + e.message, "Hata");
+                    setDurum("Hata: " + e.message);
+                } finally {
+                    setBusy(false);
+                }
+            }, "Üretime Al");
+            return;
+        }
+
+        const onayMesaji = `Bu siparişi bölmek üzeresiniz:\n- ${fmtNum(toplamSevkEdilecek)} adet ürün SEVKİYATA alınacak (Yeni Sipariş).\n- ${fmtNum(toplamKalan)} adet ürün ${toplamKalan > 0 ? "ÜRETİMDE kalacak" : "kaldı (Orijinal sipariş güncellenecek)"}.\n\nOnaylıyor musunuz?`;
+
+        showConfirm(onayMesaji, async () => {
             setBusy(true);
-            setDurum("Sipariş üretime alınıyor...");
+            setDurum("Sipariş bölünüyor ve stoklar güncelleniyor...");
             try {
-                await guncelleDurum(siparis.docId, "uretimde", { islemeTarihiniAyarla: true });
-                alert("Sipariş üretime alındı.");
-                nav("/siparisler");
-            } catch (e: any) {
-                alert("Hata: " + e.message);
-                setDurum("Hata: " + e.message);
+                const gonderilecekListe: SevkSatiri[] = sevkListesi.map(s => ({
+                    id: s.id,
+                    urunAdi: s.urunAdi,
+                    renk: s.renk,
+                    adet: s.adet,
+                    birimFiyat: s.birimFiyat,
+                    sevkAdedi: s.sevkAdedi,
+                    mevcutStok: s.mevcutStok,
+                    durum: s.durum
+                }));
+                await siparisBolVeSevkEt(siparis, gonderilecekListe);
+                setDurum("Sipariş başarıyla bölündü!");
+                showAlert("İşlem başarılı! \nStoktaki ürünler 'Sevkiyat' durumuna alındı, kalanlar güncellendi.", "Başarılı", () => nav("/siparisler"));
+            } catch (error: any) {
+                console.error("Sipariş bölme hatası:", error);
+                showAlert("Hata: " + error.message, "Hata");
+                setDurum("Hata: " + error.message);
             } finally {
                 setBusy(false);
             }
-            return;
-        }
-        const onayMesaji = `Bu siparişi bölmek üzeresiniz:\n- ${fmtNum(toplamSevkEdilecek)} adet ürün SEVKİYATA alınacak (Yeni Sipariş).\n- ${fmtNum(toplamKalan)} adet ürün ${toplamKalan > 0 ? "ÜRETİMDE kalacak" : "kaldı (Orijinal sipariş güncellenecek)"}.\n\nOnaylıyor musunuz?`;
-        if (!window.confirm(onayMesaji)) return;
-        setBusy(true);
-        setDurum("Sipariş bölünüyor ve stoklar güncelleniyor...");
-        try {
-            const gonderilecekListe: SevkSatiri[] = sevkListesi.map(s => ({
-                id: s.id,
-                urunAdi: s.urunAdi,
-                renk: s.renk,
-                adet: s.adet,
-                birimFiyat: s.birimFiyat,
-                sevkAdedi: s.sevkAdedi,
-                mevcutStok: s.mevcutStok,
-                durum: s.durum
-            }));
-            await siparisBolVeSevkEt(siparis, gonderilecekListe);
-            setDurum("Sipariş başarıyla bölündü!");
-            alert("İşlem başarılı! \nStoktaki ürünler 'Sevkiyat' durumuna alındı, kalanlar güncellendi.");
-            nav("/siparisler");
-        } catch (error: any) {
-            console.error("Sipariş bölme hatası:", error);
-            alert("Hata: " + error.message);
-            setDurum("Hata: " + error.message);
-        } finally {
-            setBusy(false);
-        }
+        }, "Sevkiyatı Onayla");
     }
 
 
@@ -227,11 +259,10 @@ export default function KismiSevkiyat() {
                 </Link>
             </div>
 
-            {/* GÜNCELLENDİ: Müşteri Bilgileri Kartı - Güncel Veri Kullanımı */}
+            {/* Müşteri Bilgileri Kartı - Güncel Veri Kullanımı */}
             <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
                     <div>
-                        {/* siparis.musteri yerine guncelMusteri kullanıyoruz */}
                         <b>Müşteri:</b> {guncelMusteri?.firmaAdi}
                         {guncelMusteri?.yetkili ? ` • ${guncelMusteri?.yetkili}` : ""}
                     </div>
@@ -345,6 +376,68 @@ export default function KismiSevkiyat() {
                     </button>
                 </div>
             </div>
+
+            {/* ========================================== */}
+            {/* ÖZEL MODAL UI KISMI                        */}
+            {/* ========================================== */}
+            {modal.isOpen && (
+                <div style={{
+                    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: "rgba(0, 0, 0, 0.6)",
+                    display: "flex", justifyContent: "center", alignItems: "center",
+                    zIndex: 99999
+                }}>
+                    <div className="card" style={{
+                        backgroundColor: "white",
+                        color: "#333",
+                        width: "90%", maxWidth: 400,
+                        padding: "24px", borderRadius: "12px",
+                        boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+                        display: "flex", flexDirection: "column", gap: "16px",
+                        position: "relative"
+                    }}>
+                        <h3 style={{ margin: 0, color: "black", fontSize: "18px" }}>{modal.title}</h3>
+
+                        <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: "14px" }}>
+                            {modal.message}
+                        </div>
+
+                        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+                            {modal.isConfirm && (
+                                <button
+                                    className="theme-btn"
+                                    onClick={closeModal}
+                                    style={{ background: "#6c757d", color: "white", padding: "8px 16px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                                >
+                                    İptal
+                                </button>
+                            )}
+                            <button
+                                className="theme-btn"
+                                onClick={() => {
+                                    if (modal.isConfirm && modal.onConfirm) {
+                                        modal.onConfirm();
+                                    } else if (!modal.isConfirm && modal.onClose) {
+                                        modal.onClose();
+                                    }
+                                    closeModal();
+                                }}
+                                style={{
+                                    background: modal.isConfirm ? "#dc3545" : "#28a745",
+                                    color: "white",
+                                    padding: "8px 16px",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                    fontWeight: "bold"
+                                }}
+                            >
+                                {modal.isConfirm ? "Onayla" : "Tamam"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

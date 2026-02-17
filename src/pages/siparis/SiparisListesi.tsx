@@ -54,11 +54,56 @@ export default function SiparisListesi() {
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
+  // --- Yeni Sıralama (Sort) State'leri ---
+  type SortKey = "musteri" | "durum" | "tarih" | "islemeTarihi" | "brut";
+  const [sortKey, setSortKey] = useState<SortKey>("islemeTarihi");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDirection(prev => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDirection("asc");
+    }
+  };
+
+  // ==========================================
+  // --- ÖZEL MODAL (ALERT/CONFIRM) YAPISI ---
+  // ==========================================
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    isConfirm: boolean;
+    onConfirm?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    isConfirm: false,
+  });
+
+  const showAlert = (message: string, title = "Bilgi") => {
+    setModal({ isOpen: true, title, message, isConfirm: false });
+  };
+
+  const showConfirm = (message: string, onConfirm: () => void, title = "Onay Gerekli") => {
+    setModal({ isOpen: true, title, message, isConfirm: true, onConfirm });
+  };
+
+  const closeModal = () => {
+    setModal(prev => ({ ...prev, isOpen: false }));
+  };
+  // ==========================================
+
   /* 1. CANLI SİPARİŞ DİNLEME */
-  useEffect(() => hepsiDinle(async (r) => {
-    setRows(r);
-    setStokOk(await stokYeterlilikHaritasi(r));
-  }), []);
+  useEffect(() => {
+    hepsiDinle(async (r) => {
+      setRows(r);
+      setStokOk(await stokYeterlilikHaritasi(r));
+    });
+  }, []);
 
   /* 2. CANLI MÜŞTERİ DİNLEME */
   useEffect(() => {
@@ -67,16 +112,8 @@ export default function SiparisListesi() {
       const harita: Record<string, any> = {};
       snap.docs.forEach((d) => {
         const data = d.data();
-
-        // EŞLEŞTİRME MANTIĞI:
-        // Veritabanında 'idNum' (sayı) veya 'id' (string) olabilir.
-        // Garanti olsun diye her ikisini de string anahtar olarak ekliyoruz.
-        if (data.idNum !== undefined) {
-          harita[String(data.idNum)] = data;
-        }
-        if (data.id) {
-          harita[String(data.id)] = data;
-        }
+        if (data.idNum !== undefined) harita[String(data.idNum)] = data;
+        if (data.id) harita[String(data.id)] = data;
       });
       setMusteriMap(harita);
     });
@@ -87,10 +124,8 @@ export default function SiparisListesi() {
   const { liste, toplamBrut } = useMemo(() => {
     const hasStatusFilter = seciliDurumlar.size > 0;
 
-    // 1. Durum filtresi
     let base = rows.filter((x) => !hasStatusFilter || seciliDurumlar.has(x.durum));
 
-    // 2. Tarih filtresi
     const start = from ? new Date(from + "T00:00:00") : null;
     const end = to ? new Date(to + "T23:59:59.999") : null;
     if (start || end) {
@@ -103,7 +138,6 @@ export default function SiparisListesi() {
       });
     }
 
-    // 3. Arama (GÜNCEL İSİM ÜZERİNDEN)
     const q = ara.trim().toLowerCase();
     if (q) {
       base = base.filter((x) => {
@@ -122,25 +156,53 @@ export default function SiparisListesi() {
       });
     }
 
-    // 4. Sıralama
     const sirali = [...base].sort((a, b) => {
-      const da = toDateOrNull(a[dateField])?.getTime() ?? 0;
-      const db = toDateOrNull(b[dateField])?.getTime() ?? 0;
-      return db - da;
+      let valA: any, valB: any;
+      switch (sortKey) {
+        case "musteri":
+          const idKeyA = String(a.musteri?.id || "");
+          const musteriA = musteriMap[idKeyA] || a.musteri;
+          valA = (musteriA?.firmaAdi || musteriA?.yetkili || "").toLowerCase();
+
+          const idKeyB = String(b.musteri?.id || "");
+          const musteriB = musteriMap[idKeyB] || b.musteri;
+          valB = (musteriB?.firmaAdi || musteriB?.yetkili || "").toLowerCase();
+          break;
+        case "durum":
+          valA = ETIKET[a.durum as SiparisDurumu] || a.durum || "";
+          valB = ETIKET[b.durum as SiparisDurumu] || b.durum || "";
+          break;
+        case "tarih":
+          valA = toDateOrNull(a.tarih)?.getTime() ?? 0;
+          valB = toDateOrNull(b.tarih)?.getTime() ?? 0;
+          break;
+        case "islemeTarihi":
+          valA = toDateOrNull(a.islemeTarihi)?.getTime() ?? 0;
+          valB = toDateOrNull(b.islemeTarihi)?.getTime() ?? 0;
+          break;
+        case "brut":
+          valA = Number(a.brutTutar ?? 0);
+          valB = Number(b.brutTutar ?? 0);
+          break;
+        default:
+          valA = 0; valB = 0;
+      }
+      if (valA < valB) return sortDirection === "asc" ? -1 : 1;
+      if (valA > valB) return sortDirection === "asc" ? 1 : -1;
+      return 0;
     });
 
     const toplam = sirali.reduce((t, r) => t + Number(r.brutTutar ?? 0), 0);
     return { liste: sirali, toplamBrut: toplam };
 
-  }, [rows, seciliDurumlar, dateField, from, to, ara, musteriMap]);
+  }, [rows, seciliDurumlar, dateField, from, to, ara, musteriMap, sortKey, sortDirection]);
 
   /* ---- Aksiyonlar ---- */
-
   async function uretimOnayi(r: any) {
     setBusy(r.docId);
     try {
       await uretimeOnayla(r.docId);
-      alert("Üretim onayı verildi. Sipariş üretimde.");
+      showAlert("Üretim onayı verildi. Sipariş üretimde.", "Başarılı");
     } finally { setBusy(null); }
   }
 
@@ -153,18 +215,19 @@ export default function SiparisListesi() {
       ? `“${musteriAd}” siparişini reddetmek üzeresiniz.\n\nBu sipariş sevkiyatta: düşülen stoklar iade edilecek.\n\nOnaylıyor musunuz?`
       : `“${musteriAd}” siparişini reddetmek üzeresiniz.\n\nOnaylıyor musunuz?`;
 
-    if (!window.confirm(mesaj)) return;
-
-    setBusy(r.docId);
-    try {
-      if (r.durum === "sevkiyat") {
-        const iadeYapildi = await reddetVeIade(r.docId);
-        alert(iadeYapildi ? "Sipariş reddedildi ve stok iade edildi." : "Sipariş reddedildi.");
-      } else {
-        await guncelleDurum(r.docId, "reddedildi", { islemeTarihiniAyarla: true });
-        alert("Sipariş reddedildi.");
-      }
-    } finally { setBusy(null); }
+    // window.confirm YERİNE ÖZEL MODAL KULLANIMI:
+    showConfirm(mesaj, async () => {
+      setBusy(r.docId);
+      try {
+        if (r.durum === "sevkiyat") {
+          const iadeYapildi = await reddetVeIade(r.docId);
+          showAlert(iadeYapildi ? "Sipariş reddedildi ve stok iade edildi." : "Sipariş reddedildi.");
+        } else {
+          await guncelleDurum(r.docId, "reddedildi", { islemeTarihiniAyarla: true });
+          showAlert("Sipariş reddedildi.");
+        }
+      } finally { setBusy(null); }
+    });
   }
 
   async function tamamla(r: any) {
@@ -181,17 +244,18 @@ export default function SiparisListesi() {
 
     const mesaj = `“${musteriAd}” müşterisine ait bu siparişi kalıcı olarak silmek istediğinizden emin misiniz?\n\nBu işlem geri alınamaz!`;
 
-    if (!window.confirm(mesaj)) return;
-
-    setBusy(r.docId);
-    try {
-      await silSiparis(r.docId);
-    } catch (error) {
-      alert("Sipariş silinirken bir hata oluştu. Lütfen tekrar deneyin.");
-      console.error(error);
-    } finally {
-      setBusy(null);
-    }
+    // window.confirm YERİNE ÖZEL MODAL KULLANIMI:
+    showConfirm(mesaj, async () => {
+      setBusy(r.docId);
+      try {
+        await silSiparis(r.docId);
+      } catch (error) {
+        console.error(error);
+        showAlert("Sipariş silinirken bir hata oluştu. Lütfen tekrar deneyin.", "Hata");
+      } finally {
+        setBusy(null);
+      }
+    }, "Kalıcı Olarak Sil");
   }
 
   /* ---- Durum Butonları ---- */
@@ -203,7 +267,6 @@ export default function SiparisListesi() {
     });
   }
 
-  // Buton grupları
   function durumAktif() { setSeciliDurumlar(new Set(["beklemede", "uretimde", "sevkiyat"])); }
   function durumGecmis() { setSeciliDurumlar(new Set(["tamamlandi", "reddedildi"])); }
   function durumHepsi() { setSeciliDurumlar(new Set(DURUMLAR)); }
@@ -224,8 +287,7 @@ export default function SiparisListesi() {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <Link to="/siparis/uretim-ihtiyac">
-            <button className="theme-btn"
-              style={{ background: "var(--yesil)", color: "white" }}>
+            <button className="theme-btn" style={{ background: "var(--yesil)", color: "white" }}>
               Üretim İhtiyaç Listesi
             </button>
           </Link>
@@ -274,24 +336,37 @@ export default function SiparisListesi() {
 
       {/* Liste */}
       <div className="card">
+
+        {/* Liste Başlıkları - Dinamik Sıralama */}
         <div style={{
           display: "grid", gridTemplateColumns: "24px 1.4fr 140px 150px 150px 120px 1fr",
-          gap: 8, fontSize: 13, color: "var(--muted)", marginBottom: 8
+          gap: 8, fontSize: 13, color: "var(--muted)", marginBottom: 8, userSelect: "none"
         }}>
-          <div></div><div>Müşteri</div><div>Durum</div><div>Tarih</div><div>İşlem Tarihi</div><div>Brüt</div><div>İşlemler</div>
+          <div></div>
+          <div style={{ cursor: "pointer" }} onClick={() => handleSort("musteri")}>
+            Müşteri {sortKey === "musteri" && (sortDirection === "asc" ? "▲" : "▼")}
+          </div>
+          <div style={{ cursor: "pointer" }} onClick={() => handleSort("durum")}>
+            Durum {sortKey === "durum" && (sortDirection === "asc" ? "▲" : "▼")}
+          </div>
+          <div style={{ cursor: "pointer" }} onClick={() => handleSort("tarih")}>
+            Tarih {sortKey === "tarih" && (sortDirection === "asc" ? "▲" : "▼")}
+          </div>
+          <div style={{ cursor: "pointer" }} onClick={() => handleSort("islemeTarihi")}>
+            İşlem Tarihi {sortKey === "islemeTarihi" && (sortDirection === "asc" ? "▲" : "▼")}
+          </div>
+          <div style={{ cursor: "pointer" }} onClick={() => handleSort("brut")}>
+            Brüt {sortKey === "brut" && (sortDirection === "asc" ? "▲" : "▼")}
+          </div>
+          <div>İşlemler</div>
         </div>
 
         <div style={{ display: "grid", gap: 8 }}>
           {liste.map((r: any) => {
 
-            // --- CANLI VERİ EŞLEŞTİRME ---
             const idKey = String(r.musteri?.id || "");
-
-            // Haritada varsa onu kullan, yoksa siparişin içindeki eski veriyi kullan
             const guncelMusteri = musteriMap[idKey] || r.musteri;
-
             const musteriAd = guncelMusteri?.firmaAdi || guncelMusteri?.yetkili || "-";
-            // -----------------------------
 
             const stok = stokOk.get(r.docId);
             const kapali = r.durum === "tamamlandi" || r.durum === "reddedildi" || r.durum === "sevkiyat";
@@ -387,6 +462,67 @@ export default function SiparisListesi() {
           {!liste.length && <div>Kayıt bulunamadı.</div>}
         </div>
       </div>
+
+      {/* ========================================== */}
+      {/* ÖZEL MODAL UI KISMI */}
+      {/* ========================================== */}
+      {/* ========================================== */}
+      {/* ÖZEL MODAL UI KISMI (SAYFANIN EN ALTINDA)  */}
+      {/* ========================================== */}
+      {modal.isOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.6)", // Arkayı biraz daha koyulaştırdık
+          display: "flex", justifyContent: "center", alignItems: "center",
+          zIndex: 99999 // Sayfadaki her şeyin kesinlikle üstünde kalması için
+        }}>
+          <div className="card" style={{
+            backgroundColor: "white", // ŞEFFAFLIĞI ENGELLEYEN KISIM (Koyu tema kullanıyorsanız "#222" yapabilirsiniz)
+            color: "#333", // Yazı rengini netleştirdik
+            width: "90%", maxWidth: 400,
+            padding: "24px", borderRadius: "12px",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.5)", // Kutu olduğunu belli eden belirgin gölge
+            display: "flex", flexDirection: "column", gap: "16px",
+            position: "relative"
+          }}>
+            <h3 style={{ margin: 0, color: "black", fontSize: "18px" }}>{modal.title}</h3>
+
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: "14px" }}>
+              {modal.message}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+              {modal.isConfirm && (
+                <button
+                  className="theme-btn"
+                  onClick={closeModal}
+                  style={{ background: "#6c757d", color: "white", padding: "8px 16px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                >
+                  İptal
+                </button>
+              )}
+              <button
+                className="theme-btn"
+                onClick={() => {
+                  if (modal.onConfirm) modal.onConfirm();
+                  closeModal();
+                }}
+                style={{
+                  background: modal.isConfirm ? "#dc3545" : "#28a745",
+                  color: "white",
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
+              >
+                {modal.isConfirm ? "Onayla" : "Tamam"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

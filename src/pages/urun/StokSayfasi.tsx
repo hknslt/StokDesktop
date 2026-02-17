@@ -87,7 +87,6 @@ export default function StokSayfasi() {
 
     // durum
     const [yuk, setYuk] = useState(false);
-    const [durum, setDurum] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
     const aktifTasklar = useRef<ReturnType<typeof uploadBytesResumable>[]>([]);
     const [silinenId, setSilinenId] = useState<number | null>(null);
@@ -97,6 +96,36 @@ export default function StokSayfasi() {
     const renkKutuRef = useRef<HTMLDivElement | null>(null);
     const [grupAcik, setGrupAcik] = useState(false);
     const grupKutuRef = useRef<HTMLDivElement | null>(null);
+
+    // ==========================================
+    // --- ÖZEL MODAL (ALERT/CONFIRM) YAPISI ---
+    // ==========================================
+    const [modal, setModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        isConfirm: boolean;
+        onConfirm?: () => void;
+        onClose?: () => void;
+    }>({
+        isOpen: false,
+        title: "",
+        message: "",
+        isConfirm: false,
+    });
+
+    const showAlert = (message: string, title = "Bilgi", onClose?: () => void) => {
+        setModal({ isOpen: true, title, message, isConfirm: false, onClose });
+    };
+
+    const showConfirm = (message: string, onConfirm: () => void, title = "Onay Gerekli") => {
+        setModal({ isOpen: true, title, message, isConfirm: true, onConfirm });
+    };
+
+    const closeModal = () => {
+        setModal(prev => ({ ...prev, isOpen: false }));
+    };
+    // ==========================================
 
     useEffect(() => {
         function kapat(e: MouseEvent) {
@@ -145,6 +174,7 @@ export default function StokSayfasi() {
             setRenkler(list);
         });
     }, []);
+
     useEffect(() => {
         const qy = query(collection(veritabani, "gruplar"), orderBy("adLower", "asc"));
         return onSnapshot(qy, (snap) => {
@@ -194,7 +224,9 @@ export default function StokSayfasi() {
         if (!fs || !fs.length) return;
         const arr = Array.from(fs);
         const ok = arr.filter((f) => f.type.startsWith("image/") && f.size <= 10 * 1024 * 1024);
-        if (ok.length !== arr.length) setDurum("Sadece resim ve en fazla 10MB kabul edilir.");
+        if (ok.length !== arr.length) {
+            showAlert("Sadece resim ve en fazla 10MB boyutundaki dosyalar kabul edilir.", "Uyarı");
+        }
         const yeni = [...files, ...ok];
         setFiles(yeni);
         if (yeni.length && coverIndex >= yeni.length) setCoverIndex(0);
@@ -267,7 +299,7 @@ export default function StokSayfasi() {
         for (const t of aktifTasklar.current) { try { t.cancel(); } catch { } }
         aktifTasklar.current = [];
         setYuk(false);
-        setDurum("Yükleme iptal edildi.");
+        showAlert("Yükleme işlemi iptal edildi.", "Bilgi");
         setProgress(0);
     }
 
@@ -279,13 +311,16 @@ export default function StokSayfasi() {
 
     const kaydet = async () => {
         if (!urunAdi.trim() || !urunKodu.trim()) {
-            setDurum("Ürün adı ve ürün kodu zorunludur.");
+            showAlert("Ürün adı ve ürün kodu zorunludur.", "Uyarı");
             return;
         }
-        if (adet < 0) { setDurum("Adet 0 veya daha büyük olmalıdır."); return; }
+        if (adet < 0) {
+            showAlert("Adet 0 veya daha büyük olmalıdır.", "Uyarı");
+            return;
+        }
 
         try {
-            setYuk(true); setDurum(null); setProgress(0); aktifTasklar.current = [];
+            setYuk(true); setProgress(0); aktifTasklar.current = [];
             const nextId = await getNextNumericId();
             const docId = String(nextId);
 
@@ -308,7 +343,9 @@ export default function StokSayfasi() {
                         digerURLler = uploaded.filter((_, i) => i !== ci);
                     } catch (e: any) {
                         console.error("UPLOAD HATASI:", e);
-                        setDurum(storageHataMesaji(e));
+                        showAlert(storageHataMesaji(e), "Hata");
+                        setYuk(false);
+                        return;
                     }
                 }
             }
@@ -328,12 +365,11 @@ export default function StokSayfasi() {
 
             await setDoc(doc(veritabani, "urunler", docId), payload);
             formuTemizle();
-            setDurum("Ürün oluşturuldu.");
-            navigate(`/urun/${docId}`);
+            showAlert("Ürün başarıyla oluşturuldu.", "Başarılı", () => navigate(`/urun/${docId}`));
         } catch (e: any) {
             console.error("KAYDET HATASI:", e?.code, e?.message);
             const msg = e?.code?.startsWith?.("storage/") ? storageHataMesaji(e) : (e?.message || "Ürün kaydedilemedi.");
-            setDurum(msg);
+            showAlert(msg, "Hata");
         } finally {
             setYuk(false);
             aktifTasklar.current = [];
@@ -344,41 +380,38 @@ export default function StokSayfasi() {
     async function deleteByUrl(url?: string | null) {
         if (!url) return;
         try {
-            // http(s) download URL versek de ref bunu kabul ediyor.
             const r = ref(depolama, url);
             await deleteObject(r);
         } catch (e) {
-            // Görsel silinemezse uygulamayı bozmasın; loglayalım.
             console.warn("Görsel silinemedi:", e);
         }
     }
 
     async function urunSil(u: Urun) {
-        if (silinenId != null) return; 
-        const onay = window.confirm(
-            `Bu ürünü silmek istediğinize emin misiniz?\n\nAd: ${u.urunAdi}\nKod: ${u.urunKodu}\n\nÜrün ve görselleri silinecek.`
+        if (silinenId != null) return;
+
+        showConfirm(
+            `Bu ürünü silmek istediğinize emin misiniz?\n\nAd: ${u.urunAdi}\nKod: ${u.urunKodu}\n\nÜrün ve görselleri kalıcı olarak silinecektir.`,
+            async () => {
+                try {
+                    setSilinenId(u.id);
+
+                    await Promise.allSettled([
+                        deleteByUrl(u.kapakResimYolu),
+                        ...(u.resimYollari || []).map((url) => deleteByUrl(url)),
+                    ]);
+
+                    await deleteDoc(doc(veritabani, "urunler", String(u.id)));
+
+                    showAlert(`'${u.urunAdi}' başarıyla silindi.`, "Başarılı");
+                } catch (e: any) {
+                    showAlert(e?.message || "Ürün silinirken bir hata oluştu.", "Hata");
+                } finally {
+                    setSilinenId(null);
+                }
+            },
+            "Ürünü Sil"
         );
-        if (!onay) return;
-
-        try {
-            setSilinenId(u.id);
-            setDurum(null);
-
-            // 1) Firestore dokümanı silmeden önce görselleri kaldır (URL'lerden)
-            await Promise.allSettled([
-                deleteByUrl(u.kapakResimYolu),
-                ...(u.resimYollari || []).map((url) => deleteByUrl(url)),
-            ]);
-
-            // 2) Ürün dokümanını sil
-            await deleteDoc(doc(veritabani, "urunler", String(u.id)));
-
-            setDurum(`'${u.urunAdi}' silindi.`);
-        } catch (e: any) {
-            setDurum(e?.message || "Ürün silinemedi.");
-        } finally {
-            setSilinenId(null);
-        }
     }
 
     return (
@@ -687,8 +720,6 @@ export default function StokSayfasi() {
                         {yuk ? "Kaydediliyor…" : "Kaydet"}
                     </button>
                 </div>
-
-                {durum && <div style={{ marginTop: 8, opacity: .9 }}>{durum}</div>}
             </div>
 
             {/* LİSTE — Foto | Ad | Kod | Renk | Adet | Aksiyon */}
@@ -746,7 +777,6 @@ export default function StokSayfasi() {
                             <div><b>{u.adet}</b></div>
 
                             {/* Aksiyonlar (satır tıklamasını engelle) */}
-                            {/* Aksiyonlar (satır tıklamasını engelle) */}
                             <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
                                 <button className="theme-btn" onClick={() => navigate(`/urun/${u.id}`)}>Detay</button>
                                 <button
@@ -763,15 +793,74 @@ export default function StokSayfasi() {
                                     {silinenId === u.id ? "Siliniyor…" : "Sil"}
                                 </button>
                             </div>
-
                         </div>
                     ))}
 
                     {!filtreli.length && <div>Liste boş.</div>}
                 </div>
             </div>
+
+            {/* ========================================== */}
+            {/* ÖZEL MODAL UI KISMI                        */}
+            {/* ========================================== */}
+            {modal.isOpen && (
+                <div style={{
+                    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: "rgba(0, 0, 0, 0.6)",
+                    display: "flex", justifyContent: "center", alignItems: "center",
+                    zIndex: 99999
+                }}>
+                    <div className="card" style={{
+                        backgroundColor: "white",
+                        color: "#333",
+                        width: "90%", maxWidth: 400,
+                        padding: "24px", borderRadius: "12px",
+                        boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+                        display: "flex", flexDirection: "column", gap: "16px",
+                        position: "relative"
+                    }}>
+                        <h3 style={{ margin: 0, color: "black", fontSize: "18px" }}>{modal.title}</h3>
+
+                        <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: "14px" }}>
+                            {modal.message}
+                        </div>
+
+                        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+                            {modal.isConfirm && (
+                                <button
+                                    className="theme-btn"
+                                    onClick={closeModal}
+                                    style={{ background: "#6c757d", color: "white", padding: "8px 16px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                                >
+                                    İptal
+                                </button>
+                            )}
+                            <button
+                                className="theme-btn"
+                                onClick={() => {
+                                    if (modal.isConfirm && modal.onConfirm) {
+                                        modal.onConfirm();
+                                    } else if (!modal.isConfirm && modal.onClose) {
+                                        modal.onClose();
+                                    }
+                                    closeModal();
+                                }}
+                                style={{
+                                    background: modal.isConfirm ? "#dc3545" : "#28a745",
+                                    color: "white",
+                                    padding: "8px 16px",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                    fontWeight: "bold"
+                                }}
+                            >
+                                {modal.isConfirm ? "Onayla" : "Tamam"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
-
-

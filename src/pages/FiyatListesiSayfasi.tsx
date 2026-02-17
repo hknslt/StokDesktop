@@ -30,8 +30,8 @@ type Urun = {
 };
 
 type UrunSatir = Urun & {
-  netFiyat?: number; // veritabanından gelen
-  draft: string;     // ekranda görünen (input)
+  netFiyat?: number;
+  draft: string;
 };
 
 type SortKey = "ad" | "kod" | "renk" | "fiyat";
@@ -59,6 +59,36 @@ export default function FiyatListesiSayfasi() {
   const [adEditMode, setAdEditMode] = useState(false);
   const [listeAdDraft, setListeAdDraft] = useState<string>("");
 
+  // ==========================================
+  // --- ÖZEL MODAL (ALERT/CONFIRM) YAPISI ---
+  // ==========================================
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    isConfirm: boolean;
+    onConfirm?: () => void;
+    onClose?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    isConfirm: false,
+  });
+
+  const showAlert = (message: string, title = "Bilgi", onClose?: () => void) => {
+    setModal({ isOpen: true, title, message, isConfirm: false, onClose });
+  };
+
+  const showConfirm = (message: string, onConfirm: () => void, title = "Onay Gerekli") => {
+    setModal({ isOpen: true, title, message, isConfirm: true, onConfirm });
+  };
+
+  const closeModal = () => {
+    setModal(prev => ({ ...prev, isOpen: false }));
+  };
+  // ==========================================
+
   useEffect(() => {
     setListeKdvDraft(seciliListe ? String(seciliListe.kdv).replace(".", ",") : "");
     setListeAdDraft(seciliListe?.ad ?? "");
@@ -81,8 +111,7 @@ export default function FiyatListesiSayfasi() {
   const [sortKey, setSortKey] = useState<SortKey>("ad");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
-  // durum / işlemler
-  const [durum, setDurum] = useState<string | null>(null);
+  // işlemler
   const [kaydediliyor, setKaydediliyor] = useState(false);
   const [saveTotal, setSaveTotal] = useState(0);
   const [saveDone, setSaveDone] = useState(0);
@@ -91,7 +120,6 @@ export default function FiyatListesiSayfasi() {
   const [silTotal, setSilTotal] = useState(0);
   const [silDone, setSilDone] = useState(0);
 
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // listeleri dinle
   useEffect(() => {
@@ -107,7 +135,7 @@ export default function FiyatListesiSayfasi() {
         setSeciliListeId(arr[0].id);
       }
     });
-  }, []); 
+  }, []);
 
   // ürünleri dinle
   useEffect(() => {
@@ -130,7 +158,6 @@ export default function FiyatListesiSayfasi() {
   // seçili listenin fiyatlarını dinle
   useEffect(() => {
     if (!seciliListeId) { setFiyatHaritasi({}); return; }
-    // Liste değişince draftları (inputları) temizle ki yeni listenin fiyatları gelsin
     setDrafts({});
 
     const col = collection(veritabani, "fiyatListeleri", seciliListeId, "urunFiyatlari");
@@ -148,10 +175,8 @@ export default function FiyatListesiSayfasi() {
 
   // filtre + sıralama + veri birleştirme
   const gorunen = useMemo(() => {
-    // 1. Verileri Birleştir (Veritabanı + Kullanıcı Inputu)
     let rows: UrunSatir[] = urunler.map(u => {
       const dbFiyat = fiyatHaritasi[u.id];
-      // Eğer kullanıcı bir şey yazdıysa (drafts) onu göster, yoksa DB'deki fiyatı göster, o da yoksa boş string.
       const userDraft = drafts[u.id];
       const displayValue = userDraft !== undefined
         ? userDraft
@@ -164,7 +189,6 @@ export default function FiyatListesiSayfasi() {
       };
     });
 
-    // 2. Filtrele
     const q = ara.trim().toLowerCase();
     if (q) {
       rows = rows.filter(s =>
@@ -176,7 +200,6 @@ export default function FiyatListesiSayfasi() {
       );
     }
 
-    // 3. Sırala
     const fiyatDegeri = (r: UrunSatir): number | undefined =>
       toNumberOrUndefined(r.draft) ?? (Number.isFinite(r.netFiyat as number) ? r.netFiyat : undefined);
 
@@ -206,12 +229,15 @@ export default function FiyatListesiSayfasi() {
       const bs = String(bv).toLocaleLowerCase();
       return as === bs ? 0 : (as < bs ? -1 : 1) * dir;
     });
-  }, [urunler, fiyatHaritasi, drafts, ara, sortKey, sortDir]); 
+  }, [urunler, fiyatHaritasi, drafts, ara, sortKey, sortDir]);
 
   async function yeniListeOlustur() {
-    if (!yeniAd.trim()) { setDurum("Liste adı gerekli."); return; }
+    if (!yeniAd.trim()) {
+      showAlert("Liste adı gerekli.", "Uyarı");
+      return;
+    }
     try {
-      setYeniYuk(true); setDurum(null);
+      setYeniYuk(true);
       const ref = await addDoc(collection(veritabani, "fiyatListeleri"), {
         ad: yeniAd.trim(),
         kdv: Number(yeniKdv) || 0,
@@ -219,9 +245,9 @@ export default function FiyatListesiSayfasi() {
       });
       setYeniAd(""); setYeniKdv(10);
       setSeciliListeId(ref.id);
-      setDurum("Fiyat listesi oluşturuldu.");
+      showAlert("Fiyat listesi oluşturuldu.", "Başarılı");
     } catch (e: any) {
-      setDurum(e?.message || "Liste oluşturulamadı.");
+      showAlert(e?.message || "Liste oluşturulamadı.", "Hata");
     } finally {
       setYeniYuk(false);
     }
@@ -240,31 +266,28 @@ export default function FiyatListesiSayfasi() {
   const listeAdiDegisti =
     seciliListe != null && listeAdDraft.trim() !== "" && seciliListe.ad !== listeAdDraft.trim();
 
-  // Değişiklik kontrolü
   const degisiklikVarMi = useMemo(() => {
     const fiyatDegisti = gorunen.some(r => {
       const girilen = toNumberOrUndefined(r.draft);
       const mevcut = r.netFiyat;
-
-      // İkisi de yoksa değişiklik yok
       if (girilen == null && (mevcut == null || Number.isNaN(mevcut))) return false;
-      // Biri var biri yoksa veya değerler farklıysa değişiklik var
       return girilen !== mevcut;
     });
     return fiyatDegisti || listeDegisti;
   }, [gorunen, listeDegisti]);
 
   async function kaydet() {
-    if (!seciliListeId) { setDurum("Önce bir liste seçin."); return; }
+    if (!seciliListeId) {
+      showAlert("Önce bir liste seçin.", "Uyarı");
+      return;
+    }
 
-    // Sadece değişenleri bul
     const changed = gorunen
       .map(r => ({ r, draftN: toNumberOrUndefined(r.draft) }))
       .filter(x => x.draftN !== x.r.netFiyat);
 
     try {
       setKaydediliyor(true);
-      setDurum(null);
       setSaveTotal(changed.length + (listeDegisti ? 1 : 0));
       setSaveDone(0);
 
@@ -292,11 +315,10 @@ export default function FiyatListesiSayfasi() {
         })
       );
 
-      // Başarılı olunca draftları temizle (Böylece veritabanından gelen güncel veriler görünür)
       setDrafts({});
-      setDurum("Değişiklikler kaydedildi.");
+      showAlert("Değişiklikler başarıyla kaydedildi.", "Başarılı");
     } catch (e: any) {
-      setDurum(e?.message || "Kaydedilemedi.");
+      showAlert(e?.message || "Kaydetme işlemi başarısız.", "Hata");
     } finally {
       setKaydediliyor(false);
       setSaveTotal(0);
@@ -307,35 +329,40 @@ export default function FiyatListesiSayfasi() {
   async function listeAdiniKaydet() {
     if (!seciliListeId) return;
     const yeniAd = listeAdDraft.trim();
-    if (!yeniAd) { setDurum("Liste adı boş olamaz."); return; }
+    if (!yeniAd) {
+      showAlert("Liste adı boş olamaz.", "Uyarı");
+      return;
+    }
     if (!listeAdiDegisti) { setAdEditMode(false); return; }
+
     try {
-      setDurum(null);
       await updateDoc(doc(veritabani, "fiyatListeleri", seciliListeId), {
         ad: yeniAd,
         updatedAt: serverTimestamp(),
       });
       setAdEditMode(false);
-      setDurum("Liste adı güncellendi.");
+      showAlert("Liste adı güncellendi.", "Başarılı");
     } catch (e: any) {
-      setDurum(e?.message || "Liste adı güncellenemedi.");
+      showAlert(e?.message || "Liste adı güncellenemedi.", "Hata");
     }
   }
 
   function listeyiSilIste() {
     if (!seciliListeId || !seciliListe) return;
-    setConfirmOpen(true);
+    showConfirm(
+      `"${seciliListe.ad}" listesini silmek üzeresiniz.\n\nBu işlem bu listenin altındaki tüm ürün fiyatlarını da silecektir. Onaylıyor musunuz?`,
+      listeyiSilGercek,
+      "Listeyi Sil"
+    );
   }
 
   async function listeyiSilGercek() {
-    if (!seciliListeId || !seciliListe) { setConfirmOpen(false); return; }
+    if (!seciliListeId || !seciliListe) return;
 
     try {
-      setConfirmOpen(false);
       setSilYapiyor(true);
       setSilTotal(0);
       setSilDone(0);
-      setDurum(null);
 
       const altCol = collection(veritabani, "fiyatListeleri", seciliListeId, "urunFiyatlari");
       const altSnap = await getDocs(altCol);
@@ -350,9 +377,9 @@ export default function FiyatListesiSayfasi() {
       done += 1; setSilDone(done);
 
       setSeciliListeId("");
-      setDurum("Liste silindi.");
+      showAlert("Liste başarıyla silindi.", "Başarılı");
     } catch (e: any) {
-      setDurum(e?.message || "Liste silinemedi.");
+      showAlert(e?.message || "Liste silinemedi.", "Hata");
     } finally {
       setSilYapiyor(false);
       setSilTotal(0);
@@ -559,8 +586,6 @@ export default function FiyatListesiSayfasi() {
             </div>
           </div>
         )}
-
-        {durum && <div style={{ opacity: .9 }}>{durum}</div>}
       </div>
 
       {/* Tablo */}
@@ -618,26 +643,62 @@ export default function FiyatListesiSayfasi() {
         </div>
       </div>
 
-      {/* SİLME ONAY MODALI */}
-      {confirmOpen && seciliListe && (
-        <div className="modal" onClick={() => setConfirmOpen(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
-            <h3 style={{ marginTop: 0 }}>Listeyi Sil</h3>
-            <p>
-              <b>{seciliListe.ad}</b> listesini silmek üzeresiniz.
-              Bu işlem <b>bu listenin altındaki tüm ürün fiyatlarını</b> da silecektir.
-            </p>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button className="theme-btn" type="button" onClick={() => setConfirmOpen(false)}>
-                İptal
-              </button>
+      {/* ========================================== */}
+      {/* ÖZEL MODAL UI KISMI                        */}
+      {/* ========================================== */}
+      {modal.isOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.6)",
+          display: "flex", justifyContent: "center", alignItems: "center",
+          zIndex: 99999
+        }}>
+          <div className="card" style={{
+            backgroundColor: "white",
+            color: "#333",
+            width: "90%", maxWidth: 400,
+            padding: "24px", borderRadius: "12px",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+            display: "flex", flexDirection: "column", gap: "16px",
+            position: "relative"
+          }}>
+            <h3 style={{ margin: 0, color: "black", fontSize: "18px" }}>{modal.title}</h3>
+
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: "14px" }}>
+              {modal.message}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+              {modal.isConfirm && (
+                <button
+                  className="theme-btn"
+                  onClick={closeModal}
+                  style={{ background: "#6c757d", color: "white", padding: "8px 16px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                >
+                  İptal
+                </button>
+              )}
               <button
-                type="button"
-                onClick={listeyiSilGercek}
                 className="theme-btn"
-                style={{ borderColor: "var(--kirmizi)", color: "var(--kirmizi)" }}
+                onClick={() => {
+                  if (modal.isConfirm && modal.onConfirm) {
+                    modal.onConfirm();
+                  } else if (!modal.isConfirm && modal.onClose) {
+                    modal.onClose();
+                  }
+                  closeModal();
+                }}
+                style={{
+                  background: modal.isConfirm ? "#dc3545" : "#28a745",
+                  color: "white",
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
               >
-                Evet, Sil
+                {modal.isConfirm ? "Onayla" : "Tamam"}
               </button>
             </div>
           </div>

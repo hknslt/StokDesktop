@@ -19,9 +19,38 @@ type Row = Musteri & { docId: string };
 export default function MusteriListesi() {
   const [rows, setRows] = useState<Row[]>([]);
   const [ara, setAra] = useState("");
-  const [durum, setDurum] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [siralaArtan, setSiralaArtan] = useState(true); // A→Z / Z→A
+
+  // ==========================================
+  // --- ÖZEL MODAL (ALERT/CONFIRM) YAPISI ---
+  // ==========================================
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    isConfirm: boolean;
+    onConfirm?: () => void;
+    onClose?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    isConfirm: false,
+  });
+
+  const showAlert = (message: string, title = "Bilgi", onClose?: () => void) => {
+    setModal({ isOpen: true, title, message, isConfirm: false, onClose });
+  };
+
+  const showConfirm = (message: string, onConfirm: () => void, title = "Onay Gerekli") => {
+    setModal({ isOpen: true, title, message, isConfirm: true, onConfirm });
+  };
+
+  const closeModal = () => {
+    setModal(prev => ({ ...prev, isOpen: false }));
+  };
+  // ==========================================
 
   useEffect(() => {
     const qy = query(collection(veritabani, "musteriler"), orderBy("id", "asc"));
@@ -49,11 +78,11 @@ export default function MusteriListesi() {
     let base = !q
       ? rows
       : rows.filter((r) =>
-          [r.firmaAdi, r.yetkili, r.telefon, r.adres]
-            .filter(Boolean)
-            .map((s) => String(s).toLowerCase())
-            .some((s) => s.includes(q))
-        );
+        [r.firmaAdi, r.yetkili, r.telefon, r.adres]
+          .filter(Boolean)
+          .map((s) => String(s).toLowerCase())
+          .some((s) => s.includes(q))
+      );
 
     const dir = siralaArtan ? 1 : -1;
     const sorted = [...base].sort((a, b) =>
@@ -64,34 +93,42 @@ export default function MusteriListesi() {
 
   async function toggle(docId: string, newVal: boolean) {
     setBusyId(docId);
-    setDurum(null);
     const prev = rows.find(r => r.docId === docId)?.guncel ?? true;
+
+    // Optimistic UI Update (Ekrandaki görüntüyü anında değiştir, hata olursa geri al)
     setRows((rs) => rs.map(r => r.docId === docId ? { ...r, guncel: newVal } : r));
+
     try {
       await updateDoc(doc(veritabani, "musteriler", docId), { guncel: newVal });
     } catch (e: any) {
       console.error("Müşteri durum güncelleme hatası:", e);
-      setDurum(e?.code === "permission-denied"
-        ? "Yetki yok: Bu işlemi sadece admin/pazarlamacı yapabilir."
-        : (e?.message || "Durum değiştirilemedi."));
+      // Hata durumunda UI'ı eski haline çevir
       setRows((rs) => rs.map(r => r.docId === docId ? { ...r, guncel: prev } : r));
+
+      const msg = e?.code === "permission-denied"
+        ? "Yetki yok: Bu işlemi sadece admin/pazarlamacı yapabilir."
+        : (e?.message || "Durum değiştirilemedi.");
+
+      showAlert(msg, "Hata");
     } finally {
       setBusyId(null);
     }
   }
 
-  async function sil(docId: string) {
-    if (!confirm("Bu müşteriyi silmek istediğine emin misin?")) return;
-    setBusyId(docId);
-    setDurum(null);
-    try {
-      await deleteDoc(doc(veritabani, "musteriler", docId));
-    } catch (e: any) {
-      console.error("Müşteri silme hatası:", e);
-      setDurum(e?.message || "Silinemedi.");
-    } finally {
-      setBusyId(null);
-    }
+  function sil(r: Row) {
+    showConfirm(
+      `'${r.firmaAdi}' isimli müşteriyi silmek istediğinize emin misiniz?`,
+      async () => {
+        setBusyId(r.docId);
+        try {
+          await deleteDoc(doc(veritabani, "musteriler", r.docId));
+        } catch (e: any) {
+          console.error("Müşteri silme hatası:", e);
+          showAlert(e?.message || "Müşteri silinemedi.", "Hata");
+        } finally {
+          setBusyId(null);
+        }
+      }, "Müşteri Sil");
   }
 
   return (
@@ -120,12 +157,6 @@ export default function MusteriListesi() {
           <Link to="/musteri/yeni"><button>Yeni Müşteri</button></Link>
         </div>
       </div>
-
-      {durum && (
-        <div className="card" style={{ borderColor: "var(--kirmizi)" }}>
-          {durum}
-        </div>
-      )}
 
       <div className="card">
         {/* Başlıklar: ID yok */}
@@ -195,7 +226,7 @@ export default function MusteriListesi() {
                   <span style={{ fontSize: 13 }}>{r.guncel ? "Aktif" : "Pasif"}</span>
                 </button>
                 {busyId === r.docId && (
-                  <span style={{ fontSize: 12, color: "var(--muted)" }}>Kaydediliyor…</span>
+                  <span style={{ fontSize: 12, color: "var(--muted)" }}>İşleniyor…</span>
                 )}
               </div>
 
@@ -206,7 +237,7 @@ export default function MusteriListesi() {
                 <button
                   className="theme-btn"
                   style={{ background: "var(--kirmizi)", color: "white" }}
-                  onClick={() => sil(r.docId)}
+                  onClick={() => sil(r)}
                   disabled={busyId === r.docId}
                 >
                   Sil
@@ -218,6 +249,68 @@ export default function MusteriListesi() {
           {!gorunen.length && <div>Liste boş.</div>}
         </div>
       </div>
+
+      {/* ========================================== */}
+      {/* ÖZEL MODAL UI KISMI                        */}
+      {/* ========================================== */}
+      {modal.isOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.6)",
+          display: "flex", justifyContent: "center", alignItems: "center",
+          zIndex: 99999
+        }}>
+          <div className="card" style={{
+            backgroundColor: "white",
+            color: "#333",
+            width: "90%", maxWidth: 400,
+            padding: "24px", borderRadius: "12px",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+            display: "flex", flexDirection: "column", gap: "16px",
+            position: "relative"
+          }}>
+            <h3 style={{ margin: 0, color: "black", fontSize: "18px" }}>{modal.title}</h3>
+
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: "14px" }}>
+              {modal.message}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+              {modal.isConfirm && (
+                <button
+                  className="theme-btn"
+                  onClick={closeModal}
+                  style={{ background: "#6c757d", color: "white", padding: "8px 16px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                >
+                  İptal
+                </button>
+              )}
+              <button
+                className="theme-btn"
+                onClick={() => {
+                  if (modal.isConfirm && modal.onConfirm) {
+                    modal.onConfirm();
+                  } else if (!modal.isConfirm && modal.onClose) {
+                    modal.onClose();
+                  }
+                  closeModal();
+                }}
+                style={{
+                  background: modal.isConfirm ? "#dc3545" : "#28a745",
+                  color: "white",
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
+              >
+                {modal.isConfirm ? "Onayla" : "Tamam"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -110,8 +110,37 @@ export default function Loglar() {
   const [openMeta, setOpenMeta] = useState<Record<string, boolean>>({});
 
   // operasyon durumu
-  const [opMsg, setOpMsg] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // ==========================================
+  // --- ÖZEL MODAL (ALERT/CONFIRM) YAPISI ---
+  // ==========================================
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    isConfirm: boolean;
+    onConfirm?: () => void;
+    onClose?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    isConfirm: false,
+  });
+
+  const showAlert = (message: string, title = "Bilgi", onClose?: () => void) => {
+    setModal({ isOpen: true, title, message, isConfirm: false, onClose });
+  };
+
+  const showConfirm = (message: string, onConfirm: () => void, title = "Onay Gerekli") => {
+    setModal({ isOpen: true, title, message, isConfirm: true, onConfirm });
+  };
+
+  const closeModal = () => {
+    setModal(prev => ({ ...prev, isOpen: false }));
+  };
+  // ==========================================
 
 
   useEffect(() => {
@@ -204,29 +233,32 @@ export default function Loglar() {
 
 
   // ==== TÜMÜNÜ SİL (Firestore'dan) ====
-  async function deleteAllLogs() {
-    const ok = confirm("TÜM logları silmek istediğine emin misin? Bu işlem geri alınamaz!");
-    if (!ok) return;
-    setDeleting(true);
-    setOpMsg(null);
-    try {
-      let total = 0;
-      while (true) {
-        const snap = await getDocs(
-          query(collection(veritabani, "logs"), orderBy("__name__"), fbLimit(450))
-        );
-        if (snap.empty) break;
-        const batch = writeBatch(veritabani);
-        snap.docs.forEach(d => batch.delete(doc(veritabani, "logs", d.id)));
-        await batch.commit();
-        total += snap.size;
-      }
-      setOpMsg(`${total} log silindi.`);
-    } catch (e: any) {
-      setOpMsg(e?.message || "Silme işlemi başarısız oldu. Yetkileri (rules) kontrol edin.");
-    } finally {
-      setDeleting(false);
-    }
+  function deleteAllLogs() {
+    showConfirm(
+      "TÜM logları silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!",
+      async () => {
+        setDeleting(true);
+        try {
+          let total = 0;
+          while (true) {
+            const snap = await getDocs(
+              query(collection(veritabani, "logs"), orderBy("__name__"), fbLimit(450))
+            );
+            if (snap.empty) break;
+            const batch = writeBatch(veritabani);
+            snap.docs.forEach(d => batch.delete(doc(veritabani, "logs", d.id)));
+            await batch.commit();
+            total += snap.size;
+          }
+          showAlert(`${total} log başarıyla silindi.`, "Başarılı");
+        } catch (e: any) {
+          showAlert(e?.message || "Silme işlemi başarısız oldu. Yetkileri (rules) kontrol edin.", "Hata");
+        } finally {
+          setDeleting(false);
+        }
+      },
+      "Tüm Logları Sil"
+    );
   }
 
   return (
@@ -301,8 +333,6 @@ export default function Loglar() {
         </div>
       </div>
 
-      {/* Operasyon mesajı */}
-      {opMsg && <div className="card" style={{ borderColor: "var(--panel-bdr)" }}>{opMsg}</div>}
 
       {/* ÖZET */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 12 }}>
@@ -404,6 +434,68 @@ export default function Loglar() {
           </div>
         </div>
       </div>
+
+      {/* ========================================== */}
+      {/* ÖZEL MODAL UI KISMI                        */}
+      {/* ========================================== */}
+      {modal.isOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.6)",
+          display: "flex", justifyContent: "center", alignItems: "center",
+          zIndex: 99999
+        }}>
+          <div className="card" style={{
+            backgroundColor: "white",
+            color: "#333",
+            width: "90%", maxWidth: 400,
+            padding: "24px", borderRadius: "12px",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+            display: "flex", flexDirection: "column", gap: "16px",
+            position: "relative"
+          }}>
+            <h3 style={{ margin: 0, color: "black", fontSize: "18px" }}>{modal.title}</h3>
+
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: "14px" }}>
+              {modal.message}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+              {modal.isConfirm && (
+                <button
+                  className="theme-btn"
+                  onClick={closeModal}
+                  style={{ background: "#6c757d", color: "white", padding: "8px 16px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                >
+                  İptal
+                </button>
+              )}
+              <button
+                className="theme-btn"
+                onClick={() => {
+                  if (modal.isConfirm && modal.onConfirm) {
+                    modal.onConfirm();
+                  } else if (!modal.isConfirm && modal.onClose) {
+                    modal.onClose();
+                  }
+                  closeModal();
+                }}
+                style={{
+                  background: modal.isConfirm ? "#dc3545" : "#28a745",
+                  color: "white",
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
+              >
+                {modal.isConfirm ? "Onayla" : "Tamam"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

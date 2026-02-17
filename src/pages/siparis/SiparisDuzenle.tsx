@@ -11,7 +11,7 @@ import {
     onSnapshot,
     getDocs,
     limit,
-    where, 
+    where,
 } from "firebase/firestore";
 import { veritabani } from "../../firebase";
 import {
@@ -51,7 +51,7 @@ function useUrunler() {
 export default function SiparisDuzenle() {
     const { id } = useParams();
     const nav = useNavigate();
-    const urunler = useUrunler(); 
+    const urunler = useUrunler();
 
     // --- State'ler ---
     const [yuk, setYuk] = useState(true);
@@ -61,7 +61,7 @@ export default function SiparisDuzenle() {
     const [musteri, setMusteri] = useState<SiparisMusteri | null>(null);
     const [satirlar, setSatirlar] = useState<SiparisSatiri[]>([]);
     const [aciklama, setAciklama] = useState("");
-    const [kdvOrani, setKdvOrani] = useState(0); 
+    const [kdvOrani, setKdvOrani] = useState(0);
     const [islemTarih, setIslemTarih] = useState(""); // YYYY-MM-DD
 
     // Fiyat listesi ve ürün seçici için state'ler
@@ -70,6 +70,32 @@ export default function SiparisDuzenle() {
     const [fiyatUygulaniyor, setFiyatUygulaniyor] = useState(false);
     const [urunPicker, setUrunPicker] = useState(false);
     const [urunAra, setUrunAra] = useState("");
+
+    // ==========================================
+    // --- ÖZEL MODAL (ALERT/CONFIRM) YAPISI ---
+    // ==========================================
+    const [modal, setModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        isConfirm: boolean;
+        onConfirm?: () => void;
+        onClose?: () => void; // Yönlendirmeler için eklendi
+    }>({
+        isOpen: false,
+        title: "",
+        message: "",
+        isConfirm: false,
+    });
+
+    const showAlert = (message: string, title = "Bilgi", onClose?: () => void) => {
+        setModal({ isOpen: true, title, message, isConfirm: false, onClose });
+    };
+
+    const closeModal = () => {
+        setModal(prev => ({ ...prev, isOpen: false }));
+    };
+    // ==========================================
 
     // --- Veri Yükleme ---
     useEffect(() => {
@@ -81,24 +107,22 @@ export default function SiparisDuzenle() {
 
                 // Düzenlemeye sadece bu durumlarda izin ver
                 if (data.durum !== "beklemede" && data.durum !== "uretimde") {
-                    alert("Bu siparişin durumu düzenlemeye uygun değil.");
-                    nav(`/siparis/${id}`);
+                    setYuk(false); // Önce yüklemeyi kapatıyoruz ki modal görünebilsin
+                    showAlert("Bu siparişin durumu düzenlemeye uygun değil.", "Uyarı", () => nav(`/siparis/${id}`));
                     return;
                 }
 
-                // --- MÜŞTERİ BİLGİSİNİ GÜNCELLEME KISMI (YENİ) ---
-                let guncelMusteriData = data.musteri; 
-                const mIdStr = data.musteri?.id; // "1" gibi string ID
+                // --- MÜŞTERİ BİLGİSİNİ GÜNCELLEME KISMI ---
+                let guncelMusteriData = data.musteri;
+                const mIdStr = data.musteri?.id;
 
                 if (mIdStr) {
                     try {
-                        // Müşteriler tablosunda idNum ile arama yapıyoruz
                         const q = query(collection(veritabani, "musteriler"), where("idNum", "==", Number(mIdStr)));
                         const mSnap = await getDocs(q);
 
                         if (!mSnap.empty) {
                             const liveData = mSnap.docs[0].data();
-                            // Bulunan güncel veriyi, siparişin müşteri formatına uyduruyoruz
                             guncelMusteriData = {
                                 id: mIdStr,
                                 firmaAdi: liveData.firmaAdi,
@@ -120,14 +144,14 @@ export default function SiparisDuzenle() {
 
                 if (data.islemeTarihi && data.islemeTarihi instanceof Timestamp) {
                     const date = data.islemeTarihi.toDate();
-                    // Tarihi YYYY-MM-DD formatına çevir
                     const formattedDate = date.toISOString().split('T')[0];
                     setIslemTarih(formattedDate);
                 }
 
             } else {
-                alert("Sipariş bulunamadı.");
-                nav("/siparisler");
+                setYuk(false);
+                showAlert("Sipariş bulunamadı.", "Hata", () => nav("/siparisler"));
+                return;
             }
             setYuk(false);
         })();
@@ -202,7 +226,6 @@ export default function SiparisDuzenle() {
                 }))
             );
 
-            // KDV oranını da seçilen listeye göre güncelle
             const seciliListe = listeler.find(l => l.id === listeId);
             if (seciliListe) {
                 setKdvOrani(seciliListe.kdv);
@@ -250,99 +273,104 @@ export default function SiparisDuzenle() {
                 brutTutar: brutToplam,
                 islemeTarihi: islemTarih ? Timestamp.fromDate(new Date(islemTarih)) : undefined
             });
-            alert("Sipariş başarıyla güncellendi.");
-            nav(`/siparis/${id}`);
+            // Güncellemeden sonra modalı gösterip "Tamam" dendiğinde yönlendir
+            showAlert("Sipariş başarıyla güncellendi.", "Başarılı", () => nav(`/siparis/${id}`));
         } catch (error) {
             console.error("Sipariş güncellenirken hata oluştu: ", error);
-            alert("Bir hata oluştu.");
+            showAlert("Sipariş güncellenirken bir hata oluştu.", "Hata");
         } finally {
             setBusy(false);
         }
     }
 
     if (yuk) return <div className="card">Yükleniyor…</div>;
-    if (!musteri) return <div className="card">Sipariş bilgileri yüklenemedi.</div>;
 
     return (
         <div style={{ display: "grid", gap: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <h2 style={{ margin: 0 }}>Siparişi Düzenle</h2>
-                <div style={{ display: "flex", gap: 8 }}>
-                    <button className="theme-btn" onClick={() => nav(-1)}>İptal</button>
-                    <button disabled={busy || satirlar.length === 0} onClick={handleGuncelle}>
-                        {busy ? "Kaydediliyor..." : "Değişiklikleri Kaydet"}
-                    </button>
-                </div>
-            </div>
 
-            {/* Adım 1 — Müşteri (Değiştirilemez) */}
-            <div className="card">
-                <h3>Müşteri Bilgileri</h3>
-                {/* Burada gösterilen bilgiler veritabanından çekilen GÜNCEL bilgilerdir */}
-                <div><b>Firma Adı:</b> {musteri.firmaAdi}</div>
-                <div><b>Yetkili:</b> {musteri.yetkili || "-"}</div>
-                <div><b>Telefon:</b> {musteri.telefon || "-"}</div>
-                <div><b>Adres:</b> {musteri.adres || "-"}</div>
-            </div>
-
-            {/* Adım 2 — Ürünler */}
-            <div className="card" style={{ display: "grid", gap: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                    <b>Fiyat Listesi:</b>
-                    <select className="input" value={listeId} onChange={(e) => setListeId(e.target.value)}>
-                        {listeler.map((l) => (
-                            <option key={l.id} value={l.id}>
-                                {l.ad} (KDV %{l.kdv})
-                            </option>
-                        ))}
-                    </select>
-                    <button
-                        className="theme-btn"
-                        onClick={fiyatlariUygula}
-                        disabled={!satirlar.length || !listeId || fiyatUygulaniyor}
-                        title="Mevcut satırlara seçili listedeki net fiyatları ve KDV oranını uygula"
-                    >
-                        {fiyatUygulaniyor ? "Uygulanıyor…" : "Listeyi Uygula"}
-                    </button>
-                    <div style={{ marginLeft: "auto" }}>
-                        <button className="theme-btn" onClick={() => setUrunPicker(true)}>+ Ürün Ekle</button>
-                    </div>
-                </div>
-                <div style={{ display: "grid", gap: 8 }}>
-                    {/* Başlıklar */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 90px 110px 110px 80px", gap: 8, color: "var(--muted)", fontSize: 13 }}>
-                        <div>Ürün</div>
-                        <div>Renk</div>
-                        <div>Adet</div>
-                        <div>Net Birim</div>
-                        <div>Net Satır</div>
-                        <div></div>
-                    </div>
-                    {/* Satırlar */}
-                    {satirlar.map((s, i) => (
-                        <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 120px 90px 110px 110px 80px", gap: 8, alignItems: "center", border: "1px solid var(--panel-bdr)", borderRadius: 10, padding: "6px 8px" }}>
-                            <div><b>{s.urunAdi}</b></div>
-                            <div>{s.renk ? <span className="tag" style={{ padding: "2px 8px", borderRadius: 999 }}>{s.renk}</span> : "—"}</div>
-                            <input className="input" type="number" value={s.adet} onChange={(e) => setSatirlar(arr => arr.map((x, idx) => idx === i ? { ...x, adet: Number(e.target.value) || 0 } : x))} />
-                            <input className="input" type="number" value={s.birimFiyat} onChange={(e) => setSatirlar(arr => arr.map((x, idx) => idx === i ? { ...x, birimFiyat: Number(e.target.value) || 0 } : x))} />
-                            <div>{(s.adet * s.birimFiyat).toLocaleString()}</div>
-                            <button className="theme-btn" onClick={() => satirSil(i)}>Sil</button>
+            {/* Modal'ın sayfa içerikleri görünmezse bile çalışması için yapıyı biraz değiştirdik */}
+            {musteri ? (
+                <>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <h2 style={{ margin: 0 }}>Siparişi Düzenle</h2>
+                        <div style={{ display: "flex", gap: 8 }}>
+                            <button className="theme-btn" onClick={() => nav(-1)}>İptal</button>
+                            <button disabled={busy || satirlar.length === 0} onClick={handleGuncelle}>
+                                {busy ? "Kaydediliyor..." : "Değişiklikleri Kaydet"}
+                            </button>
                         </div>
-                    ))}
-                    {!satirlar.length && <div>Siparişte ürün yok.</div>}
-                </div>
-                <div style={{ display: "flex", gap: 16, justifyContent: "flex-end" }}>
-                    <div>Net: <b>{netToplam.toLocaleString()}</b></div>
-                    <div>KDV %{kdvOrani}: <b>{kdvTutar.toLocaleString()}</b></div>
-                    <div>Brüt: <b>{brutToplam.toLocaleString()}</b></div>
-                </div>
-            </div>
+                    </div>
 
-            {/* Adım 3 — Diğer */}
-            <div className="card" style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 12 }}>
-                <input className="input" type="date" value={islemTarih} onChange={(e) => setIslemTarih(e.target.value)} />
-                <input className="input" placeholder="Açıklama" value={aciklama} onChange={(e) => setAciklama(e.target.value)} />
-            </div>
+                    {/* Adım 1 — Müşteri */}
+                    <div className="card">
+                        <h3>Müşteri Bilgileri</h3>
+                        <div><b>Firma Adı:</b> {musteri.firmaAdi}</div>
+                        <div><b>Yetkili:</b> {musteri.yetkili || "-"}</div>
+                        <div><b>Telefon:</b> {musteri.telefon || "-"}</div>
+                        <div><b>Adres:</b> {musteri.adres || "-"}</div>
+                    </div>
+
+                    {/* Adım 2 — Ürünler */}
+                    <div className="card" style={{ display: "grid", gap: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                            <b>Fiyat Listesi:</b>
+                            <select className="input" value={listeId} onChange={(e) => setListeId(e.target.value)}>
+                                {listeler.map((l) => (
+                                    <option key={l.id} value={l.id}>
+                                        {l.ad} (KDV %{l.kdv})
+                                    </option>
+                                ))}
+                            </select>
+                            <button
+                                className="theme-btn"
+                                onClick={fiyatlariUygula}
+                                disabled={!satirlar.length || !listeId || fiyatUygulaniyor}
+                                title="Mevcut satırlara seçili listedeki net fiyatları ve KDV oranını uygula"
+                            >
+                                {fiyatUygulaniyor ? "Uygulanıyor…" : "Listeyi Uygula"}
+                            </button>
+                            <div style={{ marginLeft: "auto" }}>
+                                <button className="theme-btn" onClick={() => setUrunPicker(true)}>+ Ürün Ekle</button>
+                            </div>
+                        </div>
+                        <div style={{ display: "grid", gap: 8 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 90px 110px 110px 80px", gap: 8, color: "var(--muted)", fontSize: 13 }}>
+                                <div>Ürün</div>
+                                <div>Renk</div>
+                                <div>Adet</div>
+                                <div>Net Birim</div>
+                                <div>Net Satır</div>
+                                <div></div>
+                            </div>
+                            {satirlar.map((s, i) => (
+                                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 120px 90px 110px 110px 80px", gap: 8, alignItems: "center", border: "1px solid var(--panel-bdr)", borderRadius: 10, padding: "6px 8px" }}>
+                                    <div><b>{s.urunAdi}</b></div>
+                                    <div>{s.renk ? <span className="tag" style={{ padding: "2px 8px", borderRadius: 999 }}>{s.renk}</span> : "—"}</div>
+                                    <input className="input" type="number" value={s.adet} onChange={(e) => setSatirlar(arr => arr.map((x, idx) => idx === i ? { ...x, adet: Number(e.target.value) || 0 } : x))} />
+                                    <input className="input" type="number" value={s.birimFiyat} onChange={(e) => setSatirlar(arr => arr.map((x, idx) => idx === i ? { ...x, birimFiyat: Number(e.target.value) || 0 } : x))} />
+                                    <div>{(s.adet * s.birimFiyat).toLocaleString()}</div>
+                                    <button className="theme-btn" onClick={() => satirSil(i)}>Sil</button>
+                                </div>
+                            ))}
+                            {!satirlar.length && <div>Siparişte ürün yok.</div>}
+                        </div>
+                        <div style={{ display: "flex", gap: 16, justifyContent: "flex-end" }}>
+                            <div>Net: <b>{netToplam.toLocaleString()}</b></div>
+                            <div>KDV %{kdvOrani}: <b>{kdvTutar.toLocaleString()}</b></div>
+                            <div>Brüt: <b>{brutToplam.toLocaleString()}</b></div>
+                        </div>
+                    </div>
+
+                    {/* Adım 3 — Diğer */}
+                    <div className="card" style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 12 }}>
+                        <input className="input" type="date" value={islemTarih} onChange={(e) => setIslemTarih(e.target.value)} />
+                        <input className="input" placeholder="Açıklama" value={aciklama} onChange={(e) => setAciklama(e.target.value)} />
+                    </div>
+                </>
+            ) : (
+                // Eğer veritabanında müşteri bulamazsa burası görünür (Modal hala tetiklenebilir)
+                <div className="card">Bekleniyor...</div>
+            )}
 
             {/* Ürün seçici modal */}
             {urunPicker && (
@@ -369,6 +397,68 @@ export default function SiparisDuzenle() {
                                 </button>
                             ))}
                             {!filtreliUrunler.length && <div>Sonuç yok.</div>}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ========================================== */}
+            {/* ÖZEL MODAL UI KISMI                        */}
+            {/* ========================================== */}
+            {modal.isOpen && (
+                <div style={{
+                    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: "rgba(0, 0, 0, 0.6)",
+                    display: "flex", justifyContent: "center", alignItems: "center",
+                    zIndex: 99999
+                }}>
+                    <div className="card" style={{
+                        backgroundColor: "white",
+                        color: "#333",
+                        width: "90%", maxWidth: 400,
+                        padding: "24px", borderRadius: "12px",
+                        boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+                        display: "flex", flexDirection: "column", gap: "16px",
+                        position: "relative"
+                    }}>
+                        <h3 style={{ margin: 0, color: "black", fontSize: "18px" }}>{modal.title}</h3>
+
+                        <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: "14px" }}>
+                            {modal.message}
+                        </div>
+
+                        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+                            {modal.isConfirm && (
+                                <button
+                                    className="theme-btn"
+                                    onClick={closeModal}
+                                    style={{ background: "#6c757d", color: "white", padding: "8px 16px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                                >
+                                    İptal
+                                </button>
+                            )}
+                            <button
+                                className="theme-btn"
+                                onClick={() => {
+                                    if (modal.isConfirm && modal.onConfirm) {
+                                        modal.onConfirm();
+                                    } else if (!modal.isConfirm && modal.onClose) {
+                                        modal.onClose();
+                                    }
+                                    closeModal();
+                                }}
+                                style={{
+                                    background: modal.isConfirm ? "#dc3545" : "#28a745",
+                                    color: "white",
+                                    padding: "8px 16px",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                    fontWeight: "bold"
+                                }}
+                            >
+                                {modal.isConfirm ? "Onayla" : "Tamam"}
+                            </button>
                         </div>
                     </div>
                 </div>

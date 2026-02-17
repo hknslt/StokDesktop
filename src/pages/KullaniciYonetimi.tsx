@@ -7,10 +7,10 @@ import {
 import { sendPasswordResetEmail } from "firebase/auth";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app, veritabani, yetki } from "../firebase";
-import { 
-  PRIVITY_MAILS, 
-  PRIVITY_UIDS, 
-  PRIVITY_USERNAMES 
+import {
+  PRIVITY_MAILS,
+  PRIVITY_UIDS,
+  PRIVITY_USERNAMES
 } from "../config/privity.ts";
 
 type Rol = "admin" | "pazarlamaci" | "uretim" | "sevkiyat";
@@ -46,26 +46,53 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
   const [resetMailGonder, setResetMailGonder] = useState(true);
 
   const [yuk, setYuk] = useState(false);
-  const [durum, setDurum] = useState<string | null>(null);
-  
 
+  // ==========================================
+  // --- ÖZEL MODAL (ALERT/CONFIRM) YAPISI ---
+  // ==========================================
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    isConfirm: boolean;
+    onConfirm?: () => void;
+    onClose?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    isConfirm: false,
+  });
+
+  const showAlert = (message: string, title = "Bilgi", onClose?: () => void) => {
+    setModal({ isOpen: true, title, message, isConfirm: false, onClose });
+  };
+
+  const showConfirm = (message: string, onConfirm: () => void, title = "Onay Gerekli") => {
+    setModal({ isOpen: true, title, message, isConfirm: true, onConfirm });
+  };
+
+  const closeModal = () => {
+    setModal(prev => ({ ...prev, isOpen: false }));
+  };
+  // ==========================================
 
   // Liste
   useEffect(() => {
-  const q = query(collection(veritabani, "users"), orderBy("createdAt", "desc"));
-  return onSnapshot(q, (snap) => {
-    const tum = snap.docs.map(d => ({ uid: d.id, ...(d.data() as any) })) as Kullanici[];
-    const gorunen = tum.filter(k => {
-      const mail = (k.email || "").toLowerCase();
-      const uname = (k.username || "").toLowerCase();
-      if (PRIVITY_MAILS.has(mail)) return false;
-      if (PRIVITY_UIDS.has(k.uid)) return false;
-      if (PRIVITY_USERNAMES.has(uname)) return false;
-      return true;
+    const q = query(collection(veritabani, "users"), orderBy("createdAt", "desc"));
+    return onSnapshot(q, (snap) => {
+      const tum = snap.docs.map(d => ({ uid: d.id, ...(d.data() as any) })) as Kullanici[];
+      const gorunen = tum.filter(k => {
+        const mailStr = (k.email || "").toLowerCase();
+        const unameStr = (k.username || "").toLowerCase();
+        if (PRIVITY_MAILS.has(mailStr)) return false;
+        if (PRIVITY_UIDS.has(k.uid)) return false;
+        if (PRIVITY_USERNAMES.has(unameStr)) return false;
+        return true;
+      });
+      setListe(gorunen);
     });
-    setListe(gorunen);
-  });
-}, []);
+  }, []);
 
   const formGecerli = useMemo(() => {
     if (rol !== "admin") return false;
@@ -78,19 +105,32 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
 
   // --- EKLE (callable) ---
   const ekle = async () => {
-    if (rol !== "admin") return setDurum("Sadece admin kullanıcı ekleyebilir.");
+    if (rol !== "admin") {
+      showAlert("Sadece admin kullanıcı ekleyebilir.", "Yetki Hatası");
+      return;
+    }
     try {
-      setYuk(true); setDurum(null);
+      setYuk(true);
 
       // username benzersiz mi?
       const uname = kullaniciAdi.trim();
       const unameLower = uname.toLowerCase();
+
+      if (!usernameRegex.test(uname)) {
+        showAlert("Kullanıcı adı 3–24 karakter uzunluğunda olmalı ve sadece harf, rakam, nokta, alt çizgi, tire içerebilir.", "Uyarı");
+        setYuk(false);
+        return;
+      }
+
       const dupe = await getDocs(
         query(collection(veritabani, "users"), where("usernameLower", "==", unameLower))
       );
-      if (!usernameRegex.test(uname))
-        return setDurum("Kullanıcı adı 3–24, (harf/rakam . _ -) olmalı.");
-      if (!dupe.empty) return setDurum("Bu kullanıcı adı zaten alınmış.");
+
+      if (!dupe.empty) {
+        showAlert("Bu kullanıcı adı zaten alınmış.", "Uyarı");
+        setYuk(false);
+        return;
+      }
 
       // 1) Cloud Function: Auth + claims + users/{uid}
       const res = await cfCreateUser({
@@ -106,19 +146,19 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
       await setDoc(doc(veritabani, "users", uid), {
         username: uname,
         usernameLower: unameLower,
-        createdAt: serverTimestamp(), 
+        createdAt: serverTimestamp(),
       }, { merge: true });
 
       // 3) Reset mail (opsiyonel)
       if (resetMailGonder) {
         try {
           await sendPasswordResetEmail(yetki, mail.trim());
-          setDurum("Kullanıcı oluşturuldu. Parola sıfırlama e-postası gönderildi (Spam kontrol edin).");
+          showAlert("Kullanıcı oluşturuldu. Parola sıfırlama e-postası gönderildi (Spam klasörünü kontrol edin).", "Başarılı");
         } catch {
-          setDurum("Kullanıcı oluşturuldu. Parola e-postası gönderilemedi; geçici şifreyle giriş yapabilir.");
+          showAlert("Kullanıcı oluşturuldu ancak parola e-postası gönderilemedi; geçici şifreyle giriş yapabilir.", "Bilgi");
         }
       } else {
-        setDurum("Kullanıcı oluşturuldu.");
+        showAlert("Kullanıcı başarıyla oluşturuldu.", "Başarılı");
       }
 
       // formu temizle
@@ -128,38 +168,48 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
     } catch (e: any) {
       console.error("[EKLE] hata:", e);
       const m = String(e?.message || e?.code || "");
-      if (m.includes("EMAIL_EXISTS")) setDurum("Bu e-posta zaten kayıtlı.");
-      else if (m.includes("WEAK_PASSWORD")) setDurum("Şifre en az 6 karakter olmalı.");
-      else setDurum(m || "Kullanıcı eklenemedi.");
-    } finally { setYuk(false); }
+      if (m.includes("EMAIL_EXISTS")) {
+        showAlert("Bu e-posta adresi zaten kayıtlı.", "Hata");
+      } else if (m.includes("WEAK_PASSWORD")) {
+        showAlert("Şifre en az 6 karakter olmalı.", "Hata");
+      } else {
+        showAlert(m || "Kullanıcı eklenirken bir hata oluştu.", "Hata");
+      }
+    } finally {
+      setYuk(false);
+    }
   };
 
   // --- SİL (önce Auth callable, sonra Firestore) ---
   const sil = async (k: Kullanici) => {
-    if (rol !== "admin") return setDurum("Sadece admin silebilir.");
-    const onay = window.confirm(`${k.email} kullanıcısını silmek istiyor musun?`);
-    if (!onay) return;
-
-    try {
-      setDurum("Silme başlatıldı…");
-
-      // 1) Auth sil
-      try {
-        const r = await cfDeleteUser({ uid: k.uid } as any);
-        console.log("[SIL][cf] result:", r?.data);
-      } catch (e: any) {
-        console.error("[SIL][cf] error:", e);
-        setDurum(`Auth silme hatası: ${e?.code || e?.message || "cf-failed"}. Firestore yine silinecek.`);
-      }
-
-      // 2) Firestore sil
-      await deleteDoc(doc(veritabani, "users", k.uid));
-
-      setDurum("Kullanıcı tamamen silindi.");
-    } catch (e: any) {
-      console.error("[SIL] final error:", e);
-      setDurum(e?.message ?? "Silme başarısız.");
+    if (rol !== "admin") {
+      showAlert("Sadece admin kullanıcı silebilir.", "Yetki Hatası");
+      return;
     }
+
+    showConfirm(`${k.email} kullanıcısını kalıcı olarak silmek istiyor musunuz?`, async () => {
+      setYuk(true);
+      try {
+        // 1) Auth sil
+        try {
+          const r = await cfDeleteUser({ uid: k.uid } as any);
+          console.log("[SIL][cf] result:", r?.data);
+        } catch (e: any) {
+          console.error("[SIL][cf] error:", e);
+          console.warn(`Auth silme hatası: ${e?.code || e?.message || "cf-failed"}. Firestore yine silinecek.`);
+        }
+
+        // 2) Firestore sil
+        await deleteDoc(doc(veritabani, "users", k.uid));
+
+        showAlert("Kullanıcı başarıyla silindi.", "Başarılı");
+      } catch (e: any) {
+        console.error("[SIL] final error:", e);
+        showAlert(e?.message ?? "Silme işlemi başarısız oldu.", "Hata");
+      } finally {
+        setYuk(false);
+      }
+    }, "Kullanıcı Sil");
   };
 
   return (
@@ -173,15 +223,16 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
         </h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12 }}>
-          <input className="input" placeholder="E-posta" value={mail} onChange={e => setMail(e.target.value)} />
+          <input className="input" placeholder="E-posta" value={mail} onChange={e => setMail(e.target.value)} disabled={yuk || rol !== "admin"} />
           <input className="input" placeholder="Geçici şifre (min 6)" type="password"
-            value={geciciSifre} onChange={e => setGeciciSifre(e.target.value)} />
-          <input className="input" placeholder="Ad" value={ad} onChange={e => setAd(e.target.value)} />
-          <input className="input" placeholder="Soyad" value={soyad} onChange={e => setSoyad(e.target.value)} />
-          <input className="input" placeholder="Kullanıcı adı "
-            value={kullaniciAdi} onChange={e => setKullaniciAdi(e.target.value)} />
+            value={geciciSifre} onChange={e => setGeciciSifre(e.target.value)} disabled={yuk || rol !== "admin"} />
+          <input className="input" placeholder="Ad" value={ad} onChange={e => setAd(e.target.value)} disabled={yuk || rol !== "admin"} />
+          <input className="input" placeholder="Soyad" value={soyad} onChange={e => setSoyad(e.target.value)} disabled={yuk || rol !== "admin"} />
+          <input className="input" placeholder="Kullanıcı adı"
+            value={kullaniciAdi} onChange={e => setKullaniciAdi(e.target.value)} disabled={yuk || rol !== "admin"} />
+
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <select className="input" value={yeniRol} onChange={e => setYeniRol(e.target.value as Rol)}>
+            <select className="input" value={yeniRol} onChange={e => setYeniRol(e.target.value as Rol)} disabled={yuk || rol !== "admin"}>
               <option value="pazarlamaci">pazarlamaci</option>
               <option value="admin">admin</option>
               <option value="uretim">uretim</option>
@@ -192,16 +243,15 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
                 type="checkbox"
                 checked={resetMailGonder}
                 onChange={e => setResetMailGonder(e.target.checked)}
+                disabled={yuk || rol !== "admin"}
               />
               Parola sıfırlama e-postası gönder
             </label>
-            <button onClick={ekle} disabled={!formGecerli || yuk} style={{ minWidth: 120 }}>
-              {yuk ? "Ekleniyor…" : "Ekle"}
+            <button onClick={ekle} disabled={!formGecerli || yuk || rol !== "admin"} style={{ minWidth: 120 }}>
+              {yuk ? "İşleniyor…" : "Ekle"}
             </button>
           </div>
         </div>
-
-        {durum && <div style={{ marginTop: 8, opacity: .9 }}>{durum}</div>}
       </div>
 
       {/* Liste kartı */}
@@ -214,7 +264,8 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr 1fr 1fr 160px",
                 gap: 8, padding: "8px 10px",
-                border: "1px solid var(--panel-bdr)", borderRadius: 10
+                border: "1px solid var(--panel-bdr)", borderRadius: 10,
+                alignItems: "center"
               }}>
               <div><b>{k.firstName} {k.lastName}</b></div>
               <div>{k.email}</div>
@@ -225,6 +276,7 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
                   style={{ background: "transparent", color: "var(--txt)", border: "1px solid var(--panel-bdr)" }}
                   onClick={() => sil(k)}
                   title="Önce Auth, sonra Firestore siler"
+                  disabled={yuk || rol !== "admin"}
                 >
                   Sil
                 </button>
@@ -234,6 +286,68 @@ export default function KullaniciYonetimi({ rol }: { rol: Rol }) {
           {!liste.length && <div>Henüz kullanıcı yok.</div>}
         </div>
       </div>
+
+      {/* ========================================== */}
+      {/* ÖZEL MODAL UI KISMI                        */}
+      {/* ========================================== */}
+      {modal.isOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.6)",
+          display: "flex", justifyContent: "center", alignItems: "center",
+          zIndex: 99999
+        }}>
+          <div className="card" style={{
+            backgroundColor: "white",
+            color: "#333",
+            width: "90%", maxWidth: 400,
+            padding: "24px", borderRadius: "12px",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+            display: "flex", flexDirection: "column", gap: "16px",
+            position: "relative"
+          }}>
+            <h3 style={{ margin: 0, color: "black", fontSize: "18px" }}>{modal.title}</h3>
+
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: "14px" }}>
+              {modal.message}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+              {modal.isConfirm && (
+                <button
+                  className="theme-btn"
+                  onClick={closeModal}
+                  style={{ background: "#6c757d", color: "white", padding: "8px 16px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                >
+                  İptal
+                </button>
+              )}
+              <button
+                className="theme-btn"
+                onClick={() => {
+                  if (modal.isConfirm && modal.onConfirm) {
+                    modal.onConfirm();
+                  } else if (!modal.isConfirm && modal.onClose) {
+                    modal.onClose();
+                  }
+                  closeModal();
+                }}
+                style={{
+                  background: modal.isConfirm ? "#dc3545" : "#28a745",
+                  color: "white",
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
+              >
+                {modal.isConfirm ? "Onayla" : "Tamam"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

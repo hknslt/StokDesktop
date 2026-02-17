@@ -72,8 +72,34 @@ export default function SiparisOlustur() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [fiyatUygulaniyor, setFiyatUygulaniyor] = useState(false);
 
+  // ==========================================
+  // --- ÖZEL MODAL (ALERT/CONFIRM) YAPISI ---
+  // ==========================================
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    isConfirm: boolean;
+    onConfirm?: () => void;
+    onClose?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    isConfirm: false,
+  });
+
+  const showAlert = (message: string, title = "Bilgi", onClose?: () => void) => {
+    setModal({ isOpen: true, title, message, isConfirm: false, onClose });
+  };
+
+
+  const closeModal = () => {
+    setModal(prev => ({ ...prev, isOpen: false }));
+  };
+  // ==========================================
+
   useEffect(() => {
-    // Listelerken idNum'a göre sıralamak daha sağlıklı olur ama mevcut yapıyı bozmadım
     const qy = query(
       collection(veritabani, "musteriler"),
       orderBy("id", "asc")
@@ -84,7 +110,7 @@ export default function SiparisOlustur() {
           const x = d.data() as any;
           return {
             docId: d.id,
-            id: Number(x.idNum ?? x.id ?? 0), // idNum varsa onu al
+            id: Number(x.idNum ?? x.id ?? 0),
             firmaAdi: String(x.firmaAdi ?? ""),
             yetkili: x.yetkili || "",
             telefon: x.telefon || "",
@@ -239,16 +265,14 @@ export default function SiparisOlustur() {
 
   const kaydedilebilir = !!musteriEmbed && satirlar.length > 0;
 
-  // --- YENİ: ID Hesaplama Fonksiyonu (MusteriOlustur.tsx ile aynı mantık) ---
   async function sonrakiMusteriId(): Promise<{ idNum: number; idStr: string }> {
     const qy = query(
       collection(veritabani, "musteriler"),
-      orderBy("idNum", "desc"), // id yerine idNum'a göre sırala
+      orderBy("idNum", "desc"),
       limit(1)
     );
     const snap = await getDocs(qy);
 
-    // Eğer kayıt varsa son idNum'ı al, yoksa 0 al
     const lastNum = snap.empty ? 0 : Number((snap.docs[0].data() as any).idNum || 0);
     const next = (isNaN(lastNum) ? 0 : lastNum) + 1;
 
@@ -265,17 +289,16 @@ export default function SiparisOlustur() {
     // SENARYO 1: Manuel mod + "kaydet" tiki AÇIK
     if (!kayitliMi && manuelKaydet) {
       if (!manuel.firmaAdi?.trim() || !manuel.telefon?.trim()) {
-        alert("Firma adı ve telefon zorunludur.");
+        // ALERT YERİNE ÖZEL MODAL:
+        showAlert("Firma adı ve telefon zorunludur.", "Uyarı");
         return;
       }
 
-      // 1. Yeni ID'yi hesapla (MusteriOlustur ile aynı mantık)
       const { idNum, idStr } = await sonrakiMusteriId();
 
-      // 2. Veriyi hazırla (guncel: true, idNum ve idStr içerir)
       const docData = {
-        id: idStr,    // String ID ("000001")
-        idNum: idNum, // Sayısal ID (1)
+        id: idStr,
+        idNum: idNum,
         firmaAdi: manuel.firmaAdi.trim(),
         yetkili: manuel.yetkili?.trim() || null,
         telefon: manuel.telefon?.trim() || null,
@@ -284,14 +307,11 @@ export default function SiparisOlustur() {
         createdAt: serverTimestamp(),
       };
 
-      // 3. Belgeyi 'idStr' adıyla kaydet (setDoc kullanarak)
-      // Bu sayede belge ID'si de "000001" olur.
       const ref = doc(veritabani, "musteriler", idStr);
       await setDoc(ref, docData);
 
-      // 4. Sipariş içine gömülecek veriyi hazırla
       embedToUse = {
-        id: String(idNum), // Sipariş içinde ID genelde sayısal tutuluyor referans için
+        id: String(idNum),
         firmaAdi: docData.firmaAdi,
         yetkili: docData.yetkili || "",
         telefon: docData.telefon || "",
@@ -299,7 +319,7 @@ export default function SiparisOlustur() {
       };
 
       kaydedilecekMusteriId = idNum;
-      setSeciliMusteriId(idStr); // UI güncellemesi için DocID kullan
+      setSeciliMusteriId(idStr);
     }
     // SENARYO 2: Kayıtlı Müşteri Seçimi
     else if (kayitliMi && seciliMusteri) {
@@ -307,28 +327,33 @@ export default function SiparisOlustur() {
     }
 
     // Siparişi oluştur
-    await ekleSiparis({
-      musteriId: kaydedilecekMusteriId,
-      musteri: embedToUse,
-      urunler: satirlar,
-      durum: "beklemede",
-      tarih: serverTimestamp() as any,
-      islemeTarihi: islemTarih
-        ? (new Date(islemTarih + "T00:00:00") as any)
-        : undefined,
-      aciklama,
-      netTutar: netToplam,
-      kdvOrani: kdv,
-      kdvTutar,
-      brutTutar: brutToplam,
-    });
+    try {
+      await ekleSiparis({
+        musteriId: kaydedilecekMusteriId,
+        musteri: embedToUse,
+        urunler: satirlar,
+        durum: "beklemede",
+        tarih: serverTimestamp() as any, 
+        islemeTarihi: islemTarih
+          ? (new Date(islemTarih + "T00:00:00") as any)
+          : undefined,
+        aciklama,
+        netTutar: netToplam,
+        kdvOrani: kdv,
+        kdvTutar,
+        brutTutar: brutToplam,
+      });
 
-    nav("/siparisler");
+      // İşlem bitince listeye dön
+      nav("/siparisler");
+    } catch (error) {
+      console.error(error);
+      showAlert("Sipariş kaydedilirken bir hata oluştu.", "Hata");
+    }
   }
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* ... (JSX kısmı tamamen aynı kalıyor) ... */}
       <div
         style={{
           display: "flex",
@@ -476,7 +501,6 @@ export default function SiparisOlustur() {
               </option>
             ))}
           </select>
-
 
           <button
             className="theme-btn"
@@ -674,6 +698,68 @@ export default function SiparisOlustur() {
           onClose={() => setUrunPicker(false)}
           onConfirm={(ids) => topluUrunEkle(ids)}
         />
+      )}
+
+      {/* ========================================== */}
+      {/* ÖZEL MODAL UI KISMI                        */}
+      {/* ========================================== */}
+      {modal.isOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.6)", 
+          display: "flex", justifyContent: "center", alignItems: "center",
+          zIndex: 99999 
+        }}>
+          <div className="card" style={{
+            backgroundColor: "white", 
+            color: "#333", 
+            width: "90%", maxWidth: 400,
+            padding: "24px", borderRadius: "12px",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.5)", 
+            display: "flex", flexDirection: "column", gap: "16px",
+            position: "relative"
+          }}>
+            <h3 style={{ margin: 0, color: "black", fontSize: "18px" }}>{modal.title}</h3>
+            
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: "14px" }}>
+              {modal.message}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+              {modal.isConfirm && (
+                <button
+                  className="theme-btn"
+                  onClick={closeModal}
+                  style={{ background: "#6c757d", color: "white", padding: "8px 16px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                >
+                  İptal
+                </button>
+              )}
+              <button
+                className="theme-btn"
+                onClick={() => {
+                  if (modal.isConfirm && modal.onConfirm) {
+                    modal.onConfirm();
+                  } else if (!modal.isConfirm && modal.onClose) {
+                    modal.onClose();
+                  }
+                  closeModal();
+                }}
+                style={{ 
+                  background: modal.isConfirm ? "#dc3545" : "#28a745", 
+                  color: "white", 
+                  padding: "8px 16px", 
+                  border: "none", 
+                  borderRadius: "6px", 
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
+              >
+                {modal.isConfirm ? "Onayla" : "Tamam"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

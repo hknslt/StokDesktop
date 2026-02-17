@@ -32,6 +32,36 @@ export default function SiparisDetay() {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [stokDetaylari, setStokDetaylari] = useState<Map<string, StokDetay>>(new Map());
 
+  // ==========================================
+  // --- ÖZEL MODAL (ALERT/CONFIRM) YAPISI ---
+  // ==========================================
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    isConfirm: boolean;
+    onConfirm?: () => void;
+    onClose?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    isConfirm: false,
+  });
+
+  const showAlert = (message: string, title = "Bilgi", onClose?: () => void) => {
+    setModal({ isOpen: true, title, message, isConfirm: false, onClose });
+  };
+
+  const showConfirm = (message: string, onConfirm: () => void, title = "Onay Gerekli") => {
+    setModal({ isOpen: true, title, message, isConfirm: true, onConfirm });
+  };
+
+  const closeModal = () => {
+    setModal(prev => ({ ...prev, isOpen: false }));
+  };
+  // ==========================================
+
   useEffect(() => {
     (async () => {
       if (!id) return;
@@ -79,29 +109,41 @@ export default function SiparisDetay() {
 
   async function reddet() {
     if (!r) return;
-    setBusy(true);
-    try {
-      if (r.durum === "sevkiyat") {
-        const iadeYapildi = await reddetVeIade(r.docId);
-        alert(iadeYapildi ? "Sipariş reddedildi ve stok iade edildi." : "Sipariş reddedildi.");
-      } else {
-        await guncelleDurum(r.docId, "reddedildi", { islemeTarihiniAyarla: true });
+
+    // İşlem kritik olduğu için emin misiniz onayı ekledik
+    showConfirm("Bu siparişi reddetmek istediğinize emin misiniz?", async () => {
+      setBusy(true);
+      try {
+        if (r.durum === "sevkiyat") {
+          const iadeYapildi = await reddetVeIade(r.docId);
+          // showAlert'a "Tamam" dendiğinde nav("/siparisler") çalışır
+          showAlert(
+            iadeYapildi ? "Sipariş reddedildi ve stok iade edildi." : "Sipariş reddedildi.",
+            "Başarılı",
+            () => nav("/siparisler")
+          );
+        } else {
+          await guncelleDurum(r.docId, "reddedildi", { islemeTarihiniAyarla: true });
+          showAlert("Sipariş reddedildi.", "Başarılı", () => nav("/siparisler"));
+        }
+      } finally {
+        setBusy(false);
       }
-      nav("/siparisler");
-    } finally {
-      setBusy(false);
-    }
+    }, "Siparişi Reddet");
   }
 
   async function tamamla() {
     if (!r) return;
-    setBusy(true);
-    try {
-      await guncelleDurum(r.docId, "tamamlandi", { islemeTarihiniAyarla: true });
-      nav("/siparisler");
-    } finally {
-      setBusy(false);
-    }
+
+    showConfirm("Siparişi tamamlandı olarak işaretlemek istediğinize emin misiniz?", async () => {
+      setBusy(true);
+      try {
+        await guncelleDurum(r.docId, "tamamlandi", { islemeTarihiniAyarla: true });
+        showAlert("Sipariş başarıyla tamamlandı.", "Başarılı", () => nav("/siparisler"));
+      } finally {
+        setBusy(false);
+      }
+    }, "Siparişi Tamamla");
   }
 
   async function pdfOlustur() {
@@ -112,7 +154,7 @@ export default function SiparisDetay() {
       await siparisPdfYazdirWeb(siparisVerisi);
     } catch (e) {
       console.error(e);
-      alert("PDF oluşturulamadı.");
+      showAlert("PDF oluşturulamadı.", "Hata");
     } finally {
       setPdfBusy(false);
     }
@@ -120,26 +162,25 @@ export default function SiparisDetay() {
 
   async function handleGeriCek() {
     if (!r) return;
-    const onay = window.confirm(
-      "Bu siparişi sevkiyattan geri çekmek istediğinizden emin misiniz?\n\nÜrünler stoğa geri eklenecek ve sipariş 'Beklemede' durumuna alınacaktır."
-    );
-    if (!onay) return;
 
-    setBusy(true);
-    try {
-      const ok = await sevkiyattanGeriCek(r.docId);
-      if (ok) {
-        alert("Sipariş başarıyla geri çekildi ve stoklar iade edildi.");
-        window.location.reload();
-      } else {
-        alert("İşlem sırasında bir hata oluştu.");
+    const mesaj = "Bu siparişi sevkiyattan geri çekmek istediğinizden emin misiniz?\n\nÜrünler stoğa geri eklenecek ve sipariş 'Beklemede' durumuna alınacaktır.";
+
+    showConfirm(mesaj, async () => {
+      setBusy(true);
+      try {
+        const ok = await sevkiyattanGeriCek(r.docId);
+        if (ok) {
+          showAlert("Sipariş başarıyla geri çekildi ve stoklar iade edildi.", "Başarılı", () => window.location.reload());
+        } else {
+          showAlert("İşlem sırasında bir hata oluştu.", "Hata");
+        }
+      } catch (error) {
+        console.error("Geri çekme hatası:", error);
+        showAlert("İşlem sırasında bir hata oluştu.", "Hata");
+      } finally {
+        setBusy(false);
       }
-    } catch (error) {
-      console.error("Geri çekme hatası:", error);
-      alert("İşlem sırasında bir hata oluştu.");
-    } finally {
-      setBusy(false);
-    }
+    }, "Sevkiyattan Geri Çek");
   }
 
   if (yuk) return <div className="card">Yükleniyor…</div>;
@@ -211,7 +252,6 @@ export default function SiparisDetay() {
             <span className={`tag status-${r.durum}`}>{ETIKET[r.durum as SiparisDurumu] ?? r.durum}</span>
           </div>
 
-          {/* GÜNCELLENDİ: Artık r.musteri yerine guncelMusteri kullanıyoruz */}
           <div>
             <b>Müşteri:</b> {guncelMusteri?.firmaAdi} {guncelMusteri?.yetkili ? `• ${guncelMusteri?.yetkili}` : ""}
           </div>
@@ -221,7 +261,6 @@ export default function SiparisDetay() {
           <div>
             <b>Adres:</b> {guncelMusteri?.adres || "-"}
           </div>
-          {/* ------------------------------------------------------------------ */}
 
           <div>
             <b>Tarih:</b> {r.tarih?.toDate?.().toLocaleDateString?.() || "-"}
@@ -317,6 +356,68 @@ export default function SiparisDetay() {
           ← Listeye dön
         </Link>
       </div>
+
+      {/* ========================================== */}
+      {/* ÖZEL MODAL UI KISMI                        */}
+      {/* ========================================== */}
+      {modal.isOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.6)",
+          display: "flex", justifyContent: "center", alignItems: "center",
+          zIndex: 99999
+        }}>
+          <div className="card" style={{
+            backgroundColor: "white",
+            color: "#333",
+            width: "90%", maxWidth: 400,
+            padding: "24px", borderRadius: "12px",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+            display: "flex", flexDirection: "column", gap: "16px",
+            position: "relative"
+          }}>
+            <h3 style={{ margin: 0, color: "black", fontSize: "18px" }}>{modal.title}</h3>
+
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: "14px" }}>
+              {modal.message}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+              {modal.isConfirm && (
+                <button
+                  className="theme-btn"
+                  onClick={closeModal}
+                  style={{ background: "#6c757d", color: "white", padding: "8px 16px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                >
+                  İptal
+                </button>
+              )}
+              <button
+                className="theme-btn"
+                onClick={() => {
+                  if (modal.isConfirm && modal.onConfirm) {
+                    modal.onConfirm();
+                  } else if (!modal.isConfirm && modal.onClose) {
+                    modal.onClose();
+                  }
+                  closeModal();
+                }}
+                style={{
+                  background: modal.isConfirm ? "#dc3545" : "#28a745",
+                  color: "white",
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
+              >
+                {modal.isConfirm ? "Onayla" : "Tamam"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
